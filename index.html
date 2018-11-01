@@ -3,45 +3,52 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Template Placeholder</title>
-
-    <link rel="stylesheet" type="text/css" href="style.css">
-
+    <title>Roman Verner's Portfolio</title>
+    <link rel="stylesheet" href="assets/css/style.css">
 </head>
 
 <body>
-    <header>
-        <h1>Student Bio</h1>
-    </header>
+    <div class="container" id="container-head">
+        <header>
+            <figure class="box" id="name-box"><h1>Roman Verner</h1></figure>
+            <figure class="box" id="empty-box"></figure>
+            <figure class="box" id="about-box"><a href="index.html">About</a></figure>
+            <figure class="divider">|</figure>
+            <figure class="box" id="portfolio-box"><a href="portfolio.html">Portfolio</a></figure>
+            <figure class="divider">|</figure>
+            <figure class="box" id="contact-box"><a href="contact.html">Contact</a></figure>
+        </header>
+    </div>
 
-    <div class="container">
+    <div class="container-vert">
+        <section class="sub-head">
+            <h2 class="box">About Me</h2>
+        </section>
 
-        <section id="main-bio">
-
-            <h2>Roman Verner</h2>
-
-            <div id="wrapper">
-                <img id="bio-image" src="https://placehold.it/200x200" alt="Your Name">
+        <section class="box-padded" id="main">
+            <div id="block-1">
                 <p>
-                    Lorem ipsum dolor sit amet, consectetur adipiscing elit. Pellentesque aliquet volutpat leo, sed
-                    pretium tellus mattis a. Phasellus egestas urna imperdiet pharetra volutpat. Duis ut tellus non
-                    metus efficitur fringilla et vel arcu. Quisque porta ut est ac pellentesque. Fusce non lacinia
-                    ante. Quisque mollis tempor euismod. Etiam non sapien dui. Suspendisse at ligula vulputate,
-                    ultrices leo et, lobortis ante.
+                    <img src="https://media.licdn.com/dms/image/C4E03AQGma2wXr5M67A/profile-displayphoto-shrink_200_200/0?e=1546473600&v=beta&t=GS1kCPizzDa6TAlxV4Tpz8a0qAnw7PrKPsZGvG9l8bA" alt="profile picture" id="profile-pic">
+                    Dobry den! That's hello in Czech, my home-country and native language! I am a software developer working out of the 
+                    Philadelphia area. I've lived around Philadelphia for most of my life -- with the exception of a brief-stint of college.
+                    My parents and I moved here when I was just five years old. I am now officially a dual-citizen -- US and Czech.
+                    I'm currently enrolled in the Penn LPS Coding Bootcamp, learning full-stack development, with the aims of
+                    a undergoing a career-change from the hard-sciences to more applied fields.
+                </p>
+                <p>
+                    I currently work at Penn as a research specialist and lab manager. Living and working in University City has its perks.
+                    There's a Boston Market more-or-less on campus, which I have been known to frequent -- I seriously couldn't tell you
+                    why I love Boston Market so much, it's just a fact of life. I like to go on runs, hang out with friends, go to concerts,
+                    and go on hikes. I'm very interested in car-culture, and follow it pretty extensively. One day I'll buy a Volksagen GTI (...
+                    one day). I'm pretty awful at writing biographies, or 'About Me' pages, as it turns out! Feel free to contact me with any questions!
                 </p>
             </div>
         </section>
-
-        <section id="contact-info">
-            <h2>Contact Info</h2>
-            <ul>
-                <li><strong>Email:</strong> <a href="#">coming soon</a></li>
-                <li><strong>Github:</strong> <a href="#">coming soon</a></li>
-                <li><strong>Portfolio:</strong> <a href="#">coming soon</a></li>
-            </ul>
-        </section>
     </div>
 
+    <div class="container">
+        <footer>Copyright &copy;</footer>
+    </div>
 </body>
 
 </html>
