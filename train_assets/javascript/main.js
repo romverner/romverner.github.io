@@ -41,18 +41,25 @@ database.ref().on("child_added", function(snapshot) {
         var localFirstTrain = snapshot.val().firstTrain;
         var localFrequency = snapshot.val().frequency;
 
-        var trainTime = moment(localFirstTrain, "HH:mm");
+        var localFirstTrainArray = localFirstTrain.split(":");
+        var localFrequencyObject = moment(localFrequency, "mm");
+  
+        // Get the time of the day (today) when the train first arrives
+        var trainTime = moment().hour(localFirstTrainArray[0]).minutes(localFirstTrainArray[1]);
+        
+        // get the current time
         var time = moment();
+        
+        // find the next time the train will arrive after the current time
+        while (time.isAfter(trainTime)) {
+            trainTime.add(localFrequencyObject);
+        };
 
-        var result = moment(time).diff(moment(trainTime));
-        var minutes = moment.duration(result).as('minutes');
-
-        var minutesAway = Math.round(minutes % localFrequency);
-
-        console.log(trainTime);
-        console.log(time);
-        console.log(minutes);
-        console.log(minutesAway);
+        // find the number of minutes that the next arrival time after 
+        // the current time is
+        var minutesAway = -1 * parseInt(moment.duration(
+            moment(time).diff(moment(trainTime)))
+            .as('minutes'));
 
         return minutesAway;
     };
