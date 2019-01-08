@@ -1,0 +1,9 @@
+to-do:
+- add dark-sky API recognition
+- add credit for icon sets:
+https://www.iconfinder.com/iconsets/weather-line-19
+
+- use http://www.emailjs.com/
+- use leaflet to display map
+- use peaks object to input coordinates to leaflet
+- moment.js for dating weather

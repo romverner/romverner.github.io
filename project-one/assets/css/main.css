@@ -1,0 +1,45 @@
+* {
+    font-family: 'PT Serif', serif;
+}
+
+h1 {
+    text-align: center;
+}
+
+body {
+    background-image: url("../images/cartographer/cartographer.png");
+}
+
+.weather-sum {
+    font-weight: bold !important;
+}
+
+.head-gray {
+    background-color: #e2e2e2;
+}
+
+#head-title {
+    color: black; /* Text color will need to be changed for header */
+    background-image: url("../images/cartographer/topo.png");
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: cover;
+}
+
+#head-back {
+    background-color: white;
+    opacity: 0.925;
+}
+
+#mapid { 
+    height: 400px; 
+}
+
+#mountain-table-div {
+    height: 400px !important;
+    overflow: auto !important;
+}
+
+tr:hover {
+    background-color: lightgray;
+ }
