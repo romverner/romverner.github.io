@@ -324,7 +324,7 @@ var peaks = {
     }
 };
 
-var weatherURL = "https://api.darksky.net/forecast/303db51ff9b966556106c97e567c4dfe/44.1125,-73.923889";
+var weatherURL = "https://cors-anywhere.herokuapp.com/https://api.darksky.net/forecast/303db51ff9b966556106c97e567c4dfe/44.1125,-73.923889";
 
 // Working module
 $.ajax({
