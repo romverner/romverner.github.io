@@ -1,4 +1,4 @@
-// Global variables
+// Global variables and initializing Firebase
 
 var weatherURL = "https://cors-anywhere.herokuapp.com/https://api.darksky.net/forecast/303db51ff9b966556106c97e567c4dfe/44.1125,-73.923889";
 
@@ -15,44 +15,51 @@ firebase.initializeApp(config);
 
 var database = firebase.database();
 
-var username = {};
+var username = "";
 var postTitle = "";
 var postDate = "";
 var postDuration = "";
 var postPeaks = "";
 var postBody = "";
 
-$(document).on("click", "#submit", function(event) {
-    event.preventDefault();
+// Listens and updates page according to any changes to Firebase
+database.ref().on("child_added", function(snapshot) {
+    var sv = snapshot.val();
 
-    username = $("#usernameID").val().trim();
-    postTitle = $("#titlePost").val().trim();
-    postDate = $("#postDateComplete").val().trim();
-    postDuration = $("#hikeDuration").val().trim();
-    postPeaks = $("#peaksClimbed").val().trim();
-    postBody = $("#hikeDescription").val().trim();
+    renderGuestbook(snapshot);
 
-    var postInfo = {
-        username: {
-            'User Name': username, 
-            'Title': postTitle,
-            'Date Completed': postDate,
-            'Hike Duration': postDuration,
-            'Peaks Climbed': postPeaks,
-            'Journal Entry': postBody
-        }
-    };
-
-    database.ref().set({postInfo});
+}, function(errorObject) {
+    console.log("Errors handled: " + errorObject.code);
 });
 
-// Working with email.js to send emails from 46.peaks.expedition@gmail.com
-// window.onload = function() {
-//     document.getElementById('contact-form').addEventListener('submit', function(event) {
-//         event.preventDefault();
-//         emailjs.sendForm('gmail', 'hiking_template', this);
-//     });
-// };
+// Working with email.js to send emails from 46.peaks.expedition@gmail.com & update/send to Firebase
+window.onload = function() {
+    document.getElementById('contact-form').addEventListener('submit', function(event) {
+        event.preventDefault();
+
+        if($("input[id=emailCheck]").is(":checked")) {
+            emailjs.sendForm('gmail', 'hiking_template', this);
+        };
+
+        username = $("#usernameID").val().trim();
+        postTitle = $("#titlePost").val().trim();
+        postDate = $("#postDateComplete").val().trim();
+        postDuration = $("#hikeDuration").val().trim();
+        postPeaks = $("#peaksClimbed").val().trim();
+        postBody = $("#hikeDescription").val().trim();
+
+        var post = {
+            username: username, 
+            postTitle: postTitle,
+            postDate: postDate,
+            postDuration: postDuration,
+            postPeaks: postPeaks,
+            postBody: postBody
+        };
+
+        database.ref().push({post});
+    });
+};
 
 // Working module
 $.ajax({
@@ -131,9 +138,41 @@ $.ajax({
 $(document).on("change", "input[id=emailCheck]", function() {
     if($(this).is(":checked")) {
         $('#myfieldset').prop('disabled', false);
-        console.log("Hi!");
     }
     else {
         $('#myfieldset').prop('disabled', true);
     };
 })
+
+// Pulls entries from Firebase and renders to screen
+var renderGuestbook = function(s) {
+    var entryDiv = $("<div>");
+    var nameDiv  = $("<div>");
+    var peakDiv  = $("<div>");
+    var timeDiv  = $("<div>");
+    var dateDiv  = $("<div>");
+    var bodyDiv  = $("<div>");
+
+    entryDiv.attr("class", "ml-5 mt-5 mr-5");
+
+    nameDiv.attr("class", "col-sm-12");
+    nameDiv.html("<h4>Name: " + s.val().post.username + "</h4>");
+
+    peakDiv.attr("class", "col-sm-12");
+    peakDiv.html("<h6>Climbed: " + s.val().post.postPeaks + "</h6>")
+
+    timeDiv.attr("class", "col-sm-12");
+    timeDiv.html("<h6>Time Taken: " + s.val().post.postDuration + "</h6>");
+
+    dateDiv.attr("class", "col-sm-12");
+    dateDiv.html("<h6>Date: " + s.val().post.postDate + "</h6>");
+
+    bodyDiv.attr("class", "col-sm-12 mt-3");
+    bodyDiv.html(
+        "<p><b>" + s.val().post.postTitle + "</b><br>"
+        + s.val().post.postBody + "</p>"
+    );
+
+    entryDiv.append(nameDiv, peakDiv, timeDiv, dateDiv, bodyDiv);
+    $("#guestEntry").prepend(entryDiv);
+};

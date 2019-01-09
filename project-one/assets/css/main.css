@@ -35,7 +35,7 @@ body {
     height: 400px; 
 }
 
-#mountain-table-div {
+#mountain-table-div, #guestEntry {
     height: 400px !important;
     overflow: auto !important;
 }
