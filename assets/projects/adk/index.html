@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible">
+    <title>46 Peak Journal</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css" integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO" crossorigin="anonymous">
+    <link href="https://fonts.googleapis.com/css?family=PT+Serif" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.4/dist/leaflet.css" integrity="sha512-puBpdR0798OZvTTbP4A8Ix/l+A4dHDD0DGqYW6RQ+9jxkRFclaxxQb/SJAWZfWAkuyeQUytO7+7N4QKrDh+drA==" crossorigin=""/>
+    <link rel="stylesheet" type="text/css" media="screen" href="assets/css/main.css"/>
+    <script src="https://www.gstatic.com/firebasejs/5.7.2/firebase.js"></script>
+    <script src="https://unpkg.com/leaflet@1.3.4/dist/leaflet.js" integrity="sha512-nMMmRyTVoLYqjP9hrbed9S+FzjZHW5gY1TWCHA5ckwXZBadntCNs8kEqAWdrb9O7rxbCaA4lKTIWjDXZxflOcA==" crossorigin=""></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+    <script src="https://rawgit.com/moment/moment/2.2.1/min/moment.min.js"></script>
+    <script type="text/javascript" src="https://cdn.emailjs.com/sdk/2.3.2/email.min.js"></script>
+    <script type="text/javascript">
+        (function(){
+            emailjs.init("user_ERzl6WhtfmRe34it4avnL");
+        })();
+    </script>
+    <script src="assets/javascript/main.js"></script>
+</head>
+
+<body>
+
+    <div class="container text-center rounded mt-4 pt-3 pb-3" id="head-title">
+        <div class="row mt-3 mb-3">
+            <div class="col-sm-3"></div>
+            <div class="col-sm-6 rounded" id="head-back">
+                <h1>46 Peaks: Expedition Log</h1>
+            </div>
+            <div class="col-sm-3"></div>
+        </div>
+    </div>
+
+    <div class="container bg-light rounded mt-5 mb-5">
+
+        <div class="row rounded head-gray">
+            <div class="col-sm-12 mt-3 border-bottom text-center head-gray">
+                <h4>Explore the Peaks</h4>
+            </div>
+        </div>
+
+        <div class="row" id="explore-peak-div">
+            <div class="col-sm-12 col-md-6 mt-3">
+                <div id="mapid"></div>
+            </div>
+            <div class="col-sm-12 col-md-6 mt-3" id="mountain-table-div">
+                <table class="table table-sm table-hover" id="mountain-table">
+                    <thead>
+                        <tr>
+                            <th scope="col">Rank</th>
+                            <th scope="col">Mountain Name</th>
+                            <th scope="col">Height (ft)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        
+        <div class="row mt-4">
+            <div class="col-sm-2"></div>
+            <div class="col-sm-8">
+                <p>
+                    The Adirondack region has a lot of hiking on offer for
+                    any outdoor enthusiast! This website was created to
+                    help you plan your trip. Simply click on a peak name
+                    and the map will show you the peak's location. 
+                    Zoom in to view the locations of the trails
+                    and trailheads!
+                </p>      
+                <p>
+                    Clicking on a map marker will bring up the peaks
+                    name. Clicking on the marker name will bring you to the
+                    wiki-page for that peak! For more information, please
+                    visit the ADK webpage 
+                    <a href="https://www.adk.org/play/hiking-information/hiking-in-the-adirondacks/" target="_blank">
+                    here</a>. Be sure to read the rules of hiking
+                    in the region and always make sure to check the most
+                    up-to-date conditions on the day of your hike!
+                </p>
+            </div>
+            <div class="col-sm-2"></div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-12">
+                <div class="row border-top border-bottom head-gray mt-3">
+                    <div class="col-sm-12 text-center mt-2 mb-1">
+                        <h4>Weather & Planning</h4>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-sm-2 text-right">
+                        <p class="weather-sum">Upcoming Week:</p>
+                    </div>
+                    <div class="col-sm-10" id="weather-summary">
+
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-sm-2 border">
+                        <div class="row">
+                            <div class="col-sm-12 text-center" id="icon1">
+
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-sm-12">
+                                <p class="weather-sum text-center" id="day-one"></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-sm-2 border">
+                        <div class="row">
+                            <div class="col-sm-12 text-center" id="icon2">
+
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-sm-12">
+                                <p class="weather-sum text-center" id="day-two"></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-sm-2 border">
+                        <div class="row">
+                            <div class="col-sm-12 text-center" id="icon3">
+
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-sm-12">
+                                <p class="weather-sum text-center" id="day-three"></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-sm-2 border">
+                        <div class="row">
+                            <div class="col-sm-12 text-center" id="icon4">
+
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-sm-12">
+                                <p class="weather-sum text-center" id="day-four"></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-sm-2 border">
+                        <div class="row">
+                            <div class="col-sm-12 text-center" id="icon5">
+
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-sm-12">
+                                <p class="weather-sum text-center" id="day-five"></p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-sm-2 border">
+                        <div class="row">
+                            <div class="col-sm-12 text-center" id="icon6">
+
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-sm-12">
+                                <p class="weather-sum text-center" id="day-six"></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row mt-3">
+                    <div class="col-md-12 text-center">
+                        <p>
+                            The above weather data was provided by 
+                            <a href="https://darksky.net/forecast/44.2796,-73.9799/us12/en" target="_blank">
+                                Dark Sky</a>.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-md-12 mt-1">
+                <div class="row border-top border-bottom head-gray mt-3">
+                    <div class="col-sm-12 text-center mt-2 mb-1">
+                        <h4>Guestbook Submission</h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-3">
+            <div class="col-sm-2"></div>
+            <div class="col-sm-8">
+                <p>
+                    Below you will find a form to help you keep track of
+                    the hikes you've completed! You can send your entries
+                    to family, friends, or yourself if you'd like. The 
+                    email entry field is entirely optional and can support
+                    multiple email addresses! The post will become a public entry
+                    in the guestbook!
+                </p>
+            </div>
+            <div class="col-sm-2"></div>
+        </div>
+
+        <form id="contact-form">
+
+            <div class="row">
+                <div class="col-sm-4"></div>
+                <div class="col-sm-4">
+                    <div class="form-group mt-3">
+                        <label>Your Name:</label>
+                        <input class="form-control" id="usernameID" name="title_of_post" placeholder="" required>
+                    </div>
+                </div>
+                <div class="col-sm-4"></div>
+            </div>
+            <div class="row">
+                <div class="col-sm-4"></div>
+                <div class="col-sm-4">
+                    <div class="form-group">
+                        <p>Keep in mind your post will be public.</p>
+                    </div>
+                </div>
+                <div class="col-sm-4"></div>
+            </div>
+            
+
+            <div class="form-group mt-3">
+                <label>Title of Post</label>
+                <input class="form-control" id="titlePost" name="title_of_post" placeholder="Ex: Another One Down!">
+            </div>
+
+            <div class="row">
+                <div class="col-sm-6">
+                    <div class="form-group">
+                        <label>Date Hike Completed</label>
+                        <input class="form-control" id="postDateComplete" name="date_completed" placeholder="Ex: 12/07/2017" required>
+                    </div>
+                </div>
+                <div class="col-sm-6">
+                    <div class="form-group">
+                        <label>How long did the hike take?</label>
+                        <input class="form-control" id="hikeDuration" name="duration" placeholder="Ex: 7 hours" required>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>Mountain(s) Completed:</label>
+                <input class="form-control" id="peaksClimbed" name="peaks_hiked" placeholder="Ex: Mt. Marcy, Algonquin, & Gray Peak" required>
+            </div>
+            
+            <div class="form-group mt-3">
+                <label>How was your hike?</label>
+                <textarea class="form-control" id="hikeDescription" name="hike_description_html" rows="5"></textarea>
+            </div>
+
+            <div class="row">
+                <div class="col-sm-2">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" value="" id="emailCheck">
+                        <label class="form-check-label" for="defaultCheck1">
+                            Send Copy to Email?
+                        </label>
+                    </div>
+                </div>
+                <div class="col-sm-2 text-right">
+                    <label>Recipient(s):</label>
+                </div>
+                <div class="col-sm-6">
+                    <fieldset id="myfieldset" disabled>
+                        <div class="form-check">
+                            <input type="email" class="form-control" name="recipient" aria-describedby="emailHelp" placeholder="Ex: johndoe@email.com, janedoe@email.com, ..." required>
+                        </div>
+                    </fieldset>
+                </div>
+                <div class="col-sm-2">
+                    <button type="submit" class="btn btn-info" id="submit" value="Send">Submit Entry</button>
+                </div>
+            </div>
+            <br>
+        </form>
+
+        <div class="row">
+            <div class="col-md-12 mt-2">
+                <div class="row border-top border-bottom head-gray mt-3">
+                    <div class="col-sm-12 text-center mt-2 mb-1">
+                        <h4>Guestbook</h4>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mt-4" id="guestEntry">
+            
+        </div>
+    </div>
+
+    <script src="assets/javascript/map.js"></script>
+</body>
+</html>

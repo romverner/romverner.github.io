@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible">
+    <title>GIPHY API</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css" integrity="sha384-MCw98/SFnGE8fJT3GXwEOngsV7Zt27NXFoaoApmYm81iuXoPkFOJwJ8ERdknLPMO"
+        crossorigin="anonymous">
+    <link rel="stylesheet" type="text/css" media="screen" href="main.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <script src="main.js"></script>
+</head>
+
+<body class="bg-dark">
+    <div class="container buttonsHere text-center"></div>
+
+    <div class="container">
+        <div class="row mt-3 bg-light rounded">
+            <div class="col-md-7" id="gifs"></div>
+            <div class="col-md-1"></div>
+            <div class="col-md-4 pt-3 pb-3">
+                <h4>Add Games!</h4>
+                <form id="gif-form">
+                    <label for="button-input">Video Game:</label>
+                    <input type="text" id="button-input">
+                    <br>
+                    <input class="mt-1" id="add-button" type="submit" value="Submit">
+                </form>
+                <br>
+                <p>Click on any of the buttons at the top of the page to get started. To play a GIF simply click on it.
+                    To stop playing it, click it again. Add games with the above form.
+                </p>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>
