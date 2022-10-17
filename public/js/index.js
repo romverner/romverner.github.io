@@ -1,14 +1,20 @@
-import contentJson from './public/json/contents.json';
-
 const RV = (() => {
     
-    const _show = () => {
-        console.log(contentJson);
+    const _getContent = (callback) => {
+        fetch('/json/contents.json')
+        .then((response) => response.json())
+        .then((data) => {
+            callback(data);
+        });
+    };
+
+    const _loadContent = (data) => {
+        
     };
     
     return {
-        show() {
-            _show();
+        loadContent() {
+            _getContent_loadContent();
         }
     };
 })();
