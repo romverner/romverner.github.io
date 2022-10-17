@@ -9,12 +9,12 @@ const RV = (() => {
     };
 
     const _loadContent = (data) => {
-        
+        console.log(data);
     };
     
     return {
         loadContent() {
-            _getContent_loadContent();
+            _getContent(_loadContent);
         }
     };
 })();
