@@ -1,14 +1,14 @@
+import contentJson from './public/json/contents.json';
+
 const RV = (() => {
-
-    const _loadContents = () => {
-        fetch('/public/json/contents.json')
-        .then(data => console.log(data))
-        .catch(error => console.log(error));
+    
+    const _show = () => {
+        console.log(contentJson);
     };
-
+    
     return {
-        loadContents() {
-            _loadContents();
+        show() {
+            _show();
         }
     };
 })();
