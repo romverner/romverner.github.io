@@ -724,7 +724,13 @@ const RV = (() => {
         
         _filteredData = _filteredResults
         _loadContent(_filteredData);
-    }
+    };
+
+    const _reset = () => {
+        _selectedCategory = '';
+        _highlightSelectedCategory();
+        _loadContent();
+    };
     
     return {
         init() {
@@ -738,6 +744,9 @@ const RV = (() => {
         },
         loadContent() {
             _loadContent();
+        },
+        reset() {
+            _reset();
         },
         search() {
             _search()
