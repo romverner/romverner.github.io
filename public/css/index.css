@@ -16,6 +16,11 @@ h2 {
     margin-bottom: 0px;
 }
 
+.pointer:hover {
+    cursor: pointer;
+    color: gray;
+}
+
 #companies {
     padding: 25px 25px;
     text-align: center;

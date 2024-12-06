@@ -1,5 +1,6 @@
 const RV = (() => {
 
+    let _filteredData = [];
     let _data = [
         {
             "name": "Auto Zone",
@@ -496,12 +497,12 @@ const RV = (() => {
         },
         {
             "name": "Jimmy Deans",
-            "category": "fppd",
+            "category": "food",
             "affiliates": []
         },
         {
             "name": "Land o Lakes",
-            "category": "fppd",
+            "category": "food",
             "affiliates": []
         },
         {
@@ -626,8 +627,27 @@ const RV = (() => {
             let aText = a.name.toUpperCase();
             let bText = b.name.toUpperCase();
             return (aText < bText) ? -1 : (aText > bText) ? 1 : 0;
-        })
+        });
     };
+
+    const _loadCategories = () => {
+        let categoryDivTag = document.getElementById('categories');
+        let uniqueCategories = [...new Set(_data.map(obj => obj.category))];
+
+        uniqueCategories.forEach((category, i) => {
+            let smallTag = document.createElement('small');
+            smallTag.innerText = `${category}`
+            smallTag.classList.add('pointer')
+            smallTag.setAttribute('onclick', `RV.filterByCategory("${category}")`);
+            categoryDivTag.append(smallTag);
+            
+            if (i !== uniqueCategories.length - 1) {
+                let separator = document.createElement('small');
+                separator.innerText = ' - '
+                categoryDivTag.append(separator)
+            }
+        });
+    }
 
     const _init = () => {
         _sort();
@@ -644,6 +664,14 @@ const RV = (() => {
             smallTag.innerText = `Category: ${datum.category}`;
             companyDiv.append(hTag);
             companyDiv.append(smallTag);
+            
+            if (datum.affiliates.length > 0) {
+                let breakTag = document.createElement('br');
+                companyDiv.append(breakTag)
+                let pTag = document.createElement('small');
+                pTag.innerText= `Affiliates: ${datum.affiliates.join(', ')}`
+                companyDiv.append(pTag)
+            }
         });
     };
 
@@ -651,16 +679,39 @@ const RV = (() => {
         let _searchTag = document.getElementById('nameSearchInput');
         let _searchTerm = _searchTag.value.toLowerCase();
 
-        let _searchResults = _data.filter((_datum) => {
-            return (_datum.name.toLowerCase().includes(_searchTerm));
+        var _searchResults = null;
+        if (_filteredData.length > 0) {
+            _searchResults = _filteredData.filter((_datum) => {
+                return (_datum.name.toLowerCase().includes(_searchTerm));
+            })    
+        } else {
+            _searchResults = _data.filter((_datum) => {
+                return (_datum.name.toLowerCase().includes(_searchTerm));
+            })
+        }
+        
+        _filteredData = _searchResults
+        _loadContent(_filteredData);
+    }
+
+    const _filterByCategory = (_category) => {
+        let _filteredResults = _data.filter((_datum) => {
+            return (_datum.category === _category)
         })
         
-        _loadContent(_searchResults);
+        _filteredData = _filteredResults
+        _loadContent(_filteredData);
     }
     
     return {
         init() {
             _init();
+        },
+        filterByCategory(category) {
+            _filterByCategory(category)
+        },
+        loadCategories() {
+            _loadCategories();
         },
         loadContent() {
             _loadContent();
@@ -672,4 +723,5 @@ const RV = (() => {
 })();
 
 RV.init();
+RV.loadCategories();
 RV.loadContent();
