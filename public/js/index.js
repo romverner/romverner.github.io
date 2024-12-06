@@ -24,7 +24,7 @@ const RV = (() => {
         },
         {
             "name": "ArmorAll",
-            "category": "product",
+            "category": "auto",
             "affiliates": []
         },
         {
@@ -62,12 +62,12 @@ const RV = (() => {
         },
         {
             "name": "Molson Beer",
-            "category": "product",
+            "category": "booze",
             "affiliates": []
         },
         {
             "name": "Coors Beer",
-            "category": "product",
+            "category": "booze",
             "affiliates": []
         },
         {
