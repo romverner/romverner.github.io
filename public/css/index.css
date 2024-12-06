@@ -1,10 +1,4 @@
-@media (max-width: 767.98px) {
-    body {
-        padding: 0% 25%;
-    }
-}
-
-@media (min-width: 768px) {
+@media (min-width: 1350px) {
     body {
         padding: 0% 25%;
     }
