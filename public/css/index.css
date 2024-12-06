@@ -1,0 +1,32 @@
+@media (max-width: 767.98px) {
+    body {
+        padding: 0% 25%;
+    }
+}
+
+@media (min-width: 768px) {
+    body {
+        padding: 0% 25%;
+    }
+}
+
+p {
+    text-align: justify;
+}
+
+h1 {
+    text-align: center;
+}
+
+h2 {
+    margin-bottom: 0px;
+}
+
+#companies {
+    padding: 25px 25px;
+    text-align: center;
+}
+
+#search {
+    text-align: center;
+}

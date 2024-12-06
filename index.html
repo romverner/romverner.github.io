@@ -5,33 +5,51 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Roman Verner</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-EVSTQN3/azprG1Anm3QDgpJLIm9Nao0Yz1ztcQTwFspd3yD65VohhpuuCOmLASjC" crossorigin="anonymous">
-    <script type="application/javascript" src="public/js/index.js"></script>
+    <title>Companies to Avoid</title>
+    <link rel="stylesheet" type="text/css" href="public/css/index.css"></link>
 </head>
 
-<body class="bg-light">
-    <div class="container-fluid">
-        
-        <div class="row">
-            <div class="col-xl-5 col-md-6 col-12 p-5 pb-3">
-                <div class="border rounded bg-white p-3 ps-5 shadow-sm">
-                    <h2 class="fw-bold mb-0">Roman Verner</h2>
-                    <h6>Application Developer</h6>
-                </div>
-            </div>
-        </div>
+<body>
+    <div id="intro">
+        <h1>Companies that ONLY Donated to Trump</h1>
+        <p>
+            The below list depicts companies that donated <b>only</b> to
+            Donald Trump or his Super PACs during the 2024 election cycle. It's 
+            fairly common for companies to donate to both campaigns, but many 
+            companies decided to make their stances very clear during the 2024 
+            election cycle. Use this list to align your wallet with your values
+            as you see fit.
+        </p>
+        <p>
+            The original list was compiled by TikTok user <b>@hermeoutonthis2</b>, 
+            who's original post on can be viewed as a re-upload on YouTube 
+            <a target="_blank" href="https://youtu.be/vz6lHO4ezy8?si=oCZ-D02-gB-FOnWo">here</a>.
+        </p>
+        <p>
+            <b>Note:</b> You can verify the claims on this page by searching for
+            the company name on <a target="_blank" href="https://www.opensecrets.org/2024-presidential-race/donald-trump/contributors?id=N00023864">opensecrets.org</a>.
+        </p>
+        <p>
+            Bookmark this page on your phone for easier access. Updates will be
+            pushed to introduce better search features as well as keep the list
+            up-to-date. This page is manually maintained. [Last Updated: December 6th, 2024]
+        </p>
+    </div>
 
-        <div class="row">
-            <div class="col-12 ps-5 pe-5">
-                <div class="border rounded bg-white p-3 ps-5 shadow-sm">
-                    <h2 class="fw-bold mb-0">Roman Verner</h2>
-                    <h6>Application Developer</h6>
-                </div>
-            </div>
-        </div>
+    <div id="search">
+        <label for="nameSearchInput">Search</label>
+        <input type="text" id="nameSearchInput" onchange="RV.search()" />
+        <button onclick="RV.search()">Search</button>
+        <br>
+        <br>
+        <button onclick="RV.loadContent()">Reset</button>
+    </div>
+
+    <div id="companies">
 
     </div>
+
+    <script type="application/javascript" src="public/js/index.js"></script>
 </body>
 
 </html>
