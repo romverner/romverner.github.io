@@ -8,6 +8,10 @@ body {
     background-color: #eee;
 }
 
+button {
+    margin-top: 10px;
+}
+
 p {
     text-align: justify;
 }
@@ -18,6 +22,10 @@ h1 {
 
 h2 {
     margin-bottom: 0px;
+}
+
+.bold {
+    font-weight: bold;
 }
 
 .pointer:hover {

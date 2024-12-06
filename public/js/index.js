@@ -1,6 +1,7 @@
 const RV = (() => {
 
     let _filteredData = [];
+    let _selectedCategory = '';
     let _data = [
         {
             "name": "Auto Zone",
@@ -92,7 +93,7 @@ const RV = (() => {
         },
         {
             "name": "Carls Jr.",
-            "category": "restaurant",
+            "category": "food",
             "affiliates": []
         },
         {
@@ -623,28 +624,32 @@ const RV = (() => {
     ];
 
     const _sort = () => {
-        _data.sort((a, b) => {
-            let aText = a.name.toUpperCase();
-            let bText = b.name.toUpperCase();
-            return (aText < bText) ? -1 : (aText > bText) ? 1 : 0;
+        _data.sort((_a, _b) => {
+            let _aText = _a.name.toUpperCase();
+            let _bText = _b.name.toUpperCase();
+            return (_aText < _bText) ? -1 : (_aText > _bText) ? 1 : 0;
         });
     };
 
     const _loadCategories = () => {
-        let categoryDivTag = document.getElementById('categories');
-        let uniqueCategories = [...new Set(_data.map(obj => obj.category))];
+        let _categoryDivTag = document.getElementById('categories');
+        let _uniqueCategories = [...new Set(_data.map(obj => obj.category))];
 
-        uniqueCategories.forEach((category, i) => {
-            let smallTag = document.createElement('small');
-            smallTag.innerText = `${category}`
-            smallTag.classList.add('pointer')
-            smallTag.setAttribute('onclick', `RV.filterByCategory("${category}")`);
-            categoryDivTag.append(smallTag);
+        _uniqueCategories.forEach((category, i) => {
+            let _smallTag = document.createElement('small');
+            _smallTag.innerText = `${category}`
+            _smallTag.classList.add('pointer')
+            _smallTag.setAttribute('onclick', `RV.filterByCategory("${category}")`);
+
+            if (i !== 0 && i % 4 === 0) {
+                _categoryDivTag.append(document.createElement('br'))
+            }
+            _categoryDivTag.append(_smallTag);
             
-            if (i !== uniqueCategories.length - 1) {
-                let separator = document.createElement('small');
-                separator.innerText = ' - '
-                categoryDivTag.append(separator)
+            if (i !== _uniqueCategories.length - 1) {
+                let _separator = document.createElement('small');
+                _separator.innerText = ' - '
+                _categoryDivTag.append(_separator)
             }
         });
     }
@@ -654,23 +659,23 @@ const RV = (() => {
     };
 
     const _loadContent = (_content=null) => {
-        let companyDiv = document.getElementById('companies');
-        companyDiv.innerHTML = '';
+        let _companyDiv = document.getElementById('companies');
+        _companyDiv.innerHTML = '';
         let _contentToLoad = (_content) ? _content : _data;
-        _contentToLoad.forEach((datum) => {
-            let hTag = document.createElement('h2');
-            hTag.innerText = datum.name;
-            let smallTag = document.createElement('small');
-            smallTag.innerText = `Category: ${datum.category}`;
-            companyDiv.append(hTag);
-            companyDiv.append(smallTag);
+        _contentToLoad.forEach((_datum) => {
+            let _hTag = document.createElement('h2');
+            _hTag.innerText = _datum.name;
+            let _smallTag = document.createElement('small');
+            _smallTag.innerText = `Category: ${_datum.category}`;
+            _companyDiv.append(_hTag);
+            _companyDiv.append(_smallTag);
             
-            if (datum.affiliates.length > 0) {
-                let breakTag = document.createElement('br');
-                companyDiv.append(breakTag)
-                let pTag = document.createElement('small');
-                pTag.innerText= `Affiliates: ${datum.affiliates.join(', ')}`
-                companyDiv.append(pTag)
+            if (_datum.affiliates.length > 0) {
+                let _breakTag = document.createElement('br');
+                _companyDiv.append(_breakTag)
+                let _pTag = document.createElement('small');
+                _pTag.innerText= `Affiliates: ${_datum.affiliates.join(', ')}`
+                _companyDiv.append(_pTag)
             }
         });
     };
@@ -692,9 +697,27 @@ const RV = (() => {
         
         _filteredData = _searchResults
         _loadContent(_filteredData);
-    }
+    };
+
+    const _highlightSelectedCategory = () => {
+        let _categoriesDiv = document.getElementById('categories');
+        _categoriesDiv.childNodes.forEach((_childNode) => {
+            if (_childNode.innerText == _selectedCategory) {
+                if (_childNode.classList) {
+                    _childNode.classList.add('bold');    
+                }
+            } else {
+                if (_childNode.classList) {
+                    _childNode.classList.remove('bold');    
+                }
+            };
+        });
+    };
 
     const _filterByCategory = (_category) => {
+        _selectedCategory = _category;
+        _highlightSelectedCategory();
+
         let _filteredResults = _data.filter((_datum) => {
             return (_datum.category === _category)
         })
