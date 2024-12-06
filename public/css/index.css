@@ -4,6 +4,10 @@
     }
 }
 
+body {
+    background-color: #eee;
+}
+
 p {
     text-align: justify;
 }

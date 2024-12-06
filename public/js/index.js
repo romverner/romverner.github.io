@@ -162,7 +162,7 @@ const RV = (() => {
         },
         {
             "name": "Folgers",
-            "category": "brand",
+            "category": "food",
             "affiliates": []
         },
         {
@@ -247,12 +247,12 @@ const RV = (() => {
         },
         {
             "name": "L.L Bean",
-            "category": "brand",
+            "category": "retailer",
             "affiliates": []
         },
         {
             "name": "Maidenform Underwear",
-            "category": "brand",
+            "category": "clothing",
             "affiliates": []
         },
         {
@@ -317,7 +317,7 @@ const RV = (() => {
         },
         {
             "name": "Old Dutch Foods",
-            "category": "manufacturer",
+            "category": "food",
             "affiliates": ["Humpty Dumpty Snack Foods"]
         },
         {
@@ -377,7 +377,7 @@ const RV = (() => {
         },
         {
             "name": "Stanley Black and Decker Hardware",
-            "category": "manufacturer",
+            "category": "brand",
             "affiliates": []
         },
         {
@@ -427,7 +427,7 @@ const RV = (() => {
         },
         {
             "name": "Smucker's Products",
-            "category": "brand",
+            "category": "food",
             "affiliates": []
         },
         {
@@ -552,7 +552,7 @@ const RV = (() => {
         },
         {
             "name": "Urban Outfitters-Free People",
-            "category": "brand",
+            "category": "retailer",
             "affiliates": []
         },
         {
