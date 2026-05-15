@@ -24,7 +24,8 @@ MAP.CONFIG = {
 MAP.create = (elementId, { center = [0, 0], zoom = 2 } = {}) => {
     try {
         const map = L.map(elementId).setView(center, zoom);
-        
+        map.zoomControl.setPosition('topright');
+
         L.tileLayer(MAP.CONFIG.tileUrl, {
             attribution: MAP.CONFIG.attribution,
         }).addTo(map);
@@ -95,7 +96,7 @@ MAP.addLegend = (map) => {
 };
 
 MAP.addLocateControl = (map) => {
-    const control = L.control({ position: 'topleft' });
+    const control = L.control({ position: 'topright' });
 
     control.onAdd = () => {
         const div = L.DomUtil.create('div', 'leaflet-bar map-locate');
