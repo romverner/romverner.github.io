@@ -1,47 +1,13 @@
-@media (min-width: 1350px) {
-    body {
-        padding: 0% 25%;
-    }
+html, body {
+    height: 100%;
+    margin: 0;
 }
 
-body {
-    background-color: #eee;
+#map {
+    height: 100%;
+    width: 100%;
 }
 
-button {
-    margin-top: 10px;
-}
-
-p {
-    text-align: justify;
-}
-
-h1 {
-    text-align: center;
-}
-
-h2 {
-    margin-bottom: 0px;
-}
-
-.bold {
-    font-weight: bold;
-}
-
-.pointer:hover {
-    cursor: pointer;
-    color: gray;
-}
-
-#categoriesHeader {
-    text-align: center;
-}
-
-#companies {
-    padding: 25px 25px;
-    text-align: center;
-}
-
-#search {
-    text-align: center;
+.leaflet-tile-pane {
+    filter: saturate(0.5);
 }

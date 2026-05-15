@@ -1,74 +1,19 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Companies that Supported Project 2025 & Donald Trump</title>
-    <link rel="stylesheet" type="text/css" href="public/css/index.css"></link>
+    <title>ROMV</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="public/css/index.css" />
 </head>
-
 <body>
-    <div id="intro">
-        <h1>
-            Companies that <i>Only</i> Donated to Trump & His Super PACs During
-            the 2024 Election
-        </h1>
-        <p>
-            The below list depicts companies that donated <i>only</i> to
-            Donald Trump or his Super PACs during the 2024 election cycle. It's 
-            fairly common for companies to donate to both campaigns, but many 
-            companies decided to make their stances very clear during the 2024 
-            election cycle. Use this list to align your wallet with your values
-            as you see fit.
-        </p>
-        <p>
-            The original list was compiled by TikTok user <b>@hearmeoutonthis2</b>, 
-            who's original post can be viewed as a re-upload on YouTube 
-            <a target="_blank" href="https://youtu.be/vz6lHO4ezy8?si=oCZ-D02-gB-FOnWo">here</a>.
-        </p>
-        <p>
-            <b>Note:</b> You can verify the claims on this page by searching for
-            the company name on <a target="_blank" href="https://www.opensecrets.org/2024-presidential-race/donald-trump/contributors?id=N00023864">opensecrets.org</a>.
-        </p>
-        <p>
-            Bookmark this page on your phone for easier access. Updates will be
-            pushed to introduce better search features as well as keep the list
-            up-to-date. This page is manually maintained. [Last Updated: December 6th, 2024]
-        </p>
-    </div>
-
-    <div id="search">
-        <p id="categoriesHeader"><u>Categories (click one to filter)</u></p>
-        <div id="categories">
-
-        </div>
-        <br>
-        <input type="text" id="nameSearchInput" onchange="RV.search()" />
-        <br>
-        <button onclick="RV.search()">Search</button>
-        <br>
-        <button onclick="RV.reset()">Reset</button>
-    </div>
-
-    <div id="companies">
+    <div id="map">
 
     </div>
 
-    <div>
-        <p>
-            <i>
-                <b>Note:</b> The organization's themselves did not donate money, but rather 
-                the money came from the organization's PACs, their individual members 
-                or employees or owners, and those individuals' immediate family 
-                members. Organizations themselves cannot contribute to candidates 
-                and party committees.
-            </i>
-        </p>
-    </div>
-
-    <script type="application/javascript" src="public/js/index.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="public/js/index.js"></script>
+    <script src="public/js/map.js"></script>
 </body>
-
 </html>
