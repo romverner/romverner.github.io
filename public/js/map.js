@@ -44,6 +44,7 @@ MAP.labelStreets = async (map) => {
         const data = await res.json();
 
         L.geoJSON(data, {
+            renderer: L.canvas(),
             style: (feature) => ({
                 color: MAP.CONFIG.bikeLaneColors[feature.properties.TYPE] || MAP.CONFIG.bikeLaneFallbackColor,
                 weight: 3,
@@ -57,9 +58,48 @@ MAP.labelStreets = async (map) => {
     }
 };
 
+MAP.addLegend = (map) => {
+    const legend = L.control({ position: 'bottomright' });
+
+    legend.onAdd = () => {
+        const div = L.DomUtil.create('div', 'map-legend');
+        const rows = Object.entries(MAP.CONFIG.bikeLaneColors)
+            .map(([type, color]) => `
+                <div class="map-legend-row">
+                    <span class="map-legend-swatch" style="background:${color}"></span>
+                    <span>${type}</span>
+                </div>
+            `)
+            .join('');
+        div.innerHTML = `
+            <button type="button" class="map-legend-toggle" aria-expanded="true">
+                <span>Bike Lanes</span>
+                <span class="map-legend-chevron" aria-hidden="true">▾</span>
+            </button>
+            <div class="map-legend-body">${rows}</div>
+        `;
+
+        const toggle = div.querySelector('.map-legend-toggle');
+        toggle.addEventListener('click', () => {
+            const collapsed = div.classList.toggle('is-collapsed');
+            toggle.setAttribute('aria-expanded', String(!collapsed));
+        });
+
+        L.DomEvent.disableClickPropagation(div);
+        L.DomEvent.disableScrollPropagation(div);
+
+        return div;
+    };
+
+    legend.addTo(map);
+};
+
 MAP.init = () => {
     const map = MAP.create("map", { center: [39.9526, -75.1652], zoom: 12 });
-    if (map) MAP.labelStreets(map);
+    if (map) {
+        MAP.labelStreets(map);
+        MAP.addLegend(map);
+    }
 };
 
 MAP.init();

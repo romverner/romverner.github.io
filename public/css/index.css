@@ -11,3 +11,58 @@ html, body {
 .leaflet-tile-pane {
     filter: saturate(0.5);
 }
+
+.map-legend {
+    background: rgba(255, 255, 255, 0.95);
+    padding: 8px 10px;
+    border-radius: 4px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+    font: 12px/1.5 system-ui, -apple-system, sans-serif;
+    color: #222;
+    max-width: 220px;
+}
+
+.map-legend-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    background: none;
+    border: 0;
+    padding: 0;
+    margin: 0 0 6px 0;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.map-legend-chevron {
+    transition: transform 0.15s ease;
+}
+
+.map-legend.is-collapsed .map-legend-toggle {
+    margin-bottom: 0;
+}
+
+.map-legend.is-collapsed .map-legend-chevron {
+    transform: rotate(-90deg);
+}
+
+.map-legend.is-collapsed .map-legend-body {
+    display: none;
+}
+
+.map-legend-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.map-legend-swatch {
+    flex: 0 0 16px;
+    height: 4px;
+    border-radius: 1px;
+}
