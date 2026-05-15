@@ -12,6 +12,39 @@ html, body {
     filter: saturate(0.5);
 }
 
+.map-locate-btn {
+    display: block;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    background: #fff;
+    border: 0;
+    color: #333;
+    cursor: pointer;
+    border-radius: 2px;
+}
+
+.map-locate-btn:hover {
+    background: #f4f4f4;
+}
+
+.map-locate-btn svg {
+    display: block;
+    margin: auto;
+}
+
+.map-locate-btn.is-loading {
+    color: #1e88e5;
+}
+
+.map-locate-btn.is-loading svg {
+    animation: map-locate-pulse 1s ease-in-out infinite;
+}
+
+@keyframes map-locate-pulse {
+    50% { opacity: 0.3; }
+}
+
 .map-legend {
     background: rgba(255, 255, 255, 0.95);
     padding: 8px 10px;
