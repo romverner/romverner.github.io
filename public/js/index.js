@@ -3,12 +3,16 @@ const ROMV = (() => {
      *  Hey there!
      */
 
+    const _debug = false;
+
     const _createModule = (_name) => {
         const _errs = [];
         const _logs = [];
         const _identifier = `RV.${_name}`;
 
         const _recordErr = (_err) => {
+            if (!_debug) return;
+
             const _errObj = _err instanceof Error
                 ? { message: _err.message, stack: _err.stack, name: _err.name }
                 : _err;
@@ -20,6 +24,8 @@ const ROMV = (() => {
         };
 
         const _recordLog = (_msg, _params = null) => {
+            if (!_debug) return;
+            
             _logs.push({
                 module: _identifier,
                 sessionTime: performance.now(),
