@@ -333,6 +333,8 @@ ROUTE.attach = (map) => {
                 <div class="map-route-summary"></div>
                 <div class="map-route-breakdown"></div>
                 <button type="button" class="map-route-export" hidden>Export Route (.gpx)</button>
+                <div class="map-route-maplinks" hidden
+                    title="Map apps recompute between handoff points — expect an approximation of this route"></div>
                 <div class="map-route-actions">
                     <button type="button" class="map-route-reverse" title="Swap start and destination">⇅ Reverse</button>
                     <button type="button" class="map-route-clear">Clear route</button>
@@ -350,6 +352,7 @@ ROUTE.attach = (map) => {
         const summary = div.querySelector('.map-route-summary');
         const breakdown = div.querySelector('.map-route-breakdown');
         const exportBtn = div.querySelector('.map-route-export');
+        const maplinks = div.querySelector('.map-route-maplinks');
         const reverseBtn = div.querySelector('.map-route-reverse');
         const clearBtn = div.querySelector('.map-route-clear');
 
@@ -392,6 +395,8 @@ ROUTE.attach = (map) => {
             state.lastMiles = 0;
             state.legPaths = null;
             exportBtn.hidden = true;
+            maplinks.hidden = true;
+            maplinks.innerHTML = '';
             if (!state.graph || !state.start || !state.end) return;
 
             const waypoints = [state.start, ...state.vias, state.end]
@@ -446,6 +451,7 @@ ROUTE.attach = (map) => {
             state.lastPath = fullPath;
             state.lastMiles = miles;
             exportBtn.hidden = false;
+            renderMapLinks(fullPath);
 
             const stats = ROUTE.routeStats(state.graph, route);
             const bar = stats.map((c) =>
@@ -735,6 +741,43 @@ ROUTE.attach = (map) => {
             // only by dragging, so a tap can't wipe out the route.
         };
 
+        // Hand the route off to a maps app. No app accepts a custom
+        // polyline, so Google gets the endpoints plus evenly spaced via
+        // samples (max allowed: 9) to approximate our route; Apple Maps'
+        // URL scheme only takes start/destination.
+        const renderMapLinks = (path) => {
+            const fmt = (p) => `${p[0].toFixed(5)},${p[1].toFixed(5)}`;
+            const start = path[0];
+            const end = path[path.length - 1];
+
+            const cum = [0];
+            for (let i = 1; i < path.length; i++) {
+                cum.push(cum[i - 1] + ROUTE.distanceM(
+                    path[i - 1][0], path[i - 1][1], path[i][0], path[i][1]));
+            }
+            const total = cum[cum.length - 1];
+            const samples = [];
+            let idx = 0;
+            for (let k = 1; k <= 8; k++) {
+                const target = (total * k) / 9;
+                while (idx < cum.length - 1 && cum[idx] < target) idx++;
+                samples.push(path[idx]);
+            }
+
+            const googleUrl = 'https://www.google.com/maps/dir/?api=1'
+                + `&origin=${fmt(start)}&destination=${fmt(end)}`
+                + '&travelmode=bicycling'
+                + `&waypoints=${encodeURIComponent(samples.map(fmt).join('|'))}`;
+            const appleUrl = `https://maps.apple.com/?saddr=${fmt(start)}&daddr=${fmt(end)}&dirflg=c`;
+
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            maplinks.innerHTML = (isIOS
+                ? `<a href="${appleUrl}" target="_blank" rel="noopener">Apple Maps ↗</a>`
+                : '')
+                + `<a href="${googleUrl}" target="_blank" rel="noopener">Google Maps ↗</a>`;
+            maplinks.hidden = false;
+        };
+
         const exportGpx = async () => {
             if (!state.lastPath) return;
             const name = `Philly bike route (${state.lastMiles.toFixed(1)} mi)`;
@@ -786,6 +829,8 @@ ROUTE.attach = (map) => {
             summary.innerHTML = '';
             breakdown.innerHTML = '';
             exportBtn.hidden = true;
+            maplinks.hidden = true;
+            maplinks.innerHTML = '';
             state.indegoAutoHidden = false;
             renderWaypoints();
             refreshSheet();
@@ -857,7 +902,10 @@ ROUTE.attach = (map) => {
                     <div class="map-route-help-item">
                         <div class="map-route-help-item-title">Export</div>
                         <p>Share the route as a GPX file to apps like Komoot, Strava,
-                        or Garmin (downloads on desktop).</p>
+                        or Garmin (downloads on desktop) — those follow it exactly.
+                        Or hand it to Apple or Google Maps for turn-by-turn: they
+                        re-route between handoff points along the way, so treat that
+                        as an approximation of this route.</p>
                     </div>
                     <p class="map-route-help-note">Routing covers Philadelphia only —
                     the dashed line marks the county limit.</p>

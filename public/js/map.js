@@ -148,7 +148,7 @@ MAP.labelTrails = async (map) => {
         const res = await fetch(MAP.CONFIG.trailsUrl);
         const data = await res.json();
 
-        L.geoJSON(data, {
+        MAP.trailsLayer = L.geoJSON(data, {
             renderer: L.canvas(),
             style: (feature) => ({
                 color: feature.properties.SURFACE === 'Unpaved'
@@ -444,11 +444,14 @@ MAP.addLocateControl = (map) => {
         lanesBtn.addEventListener('click', () => {
             if (!MAP.streetsLayer) return;
             const visible = map.hasLayer(MAP.streetsLayer);
-            if (visible) map.removeLayer(MAP.streetsLayer);
-            else MAP.streetsLayer.addTo(map);
+            for (const layer of [MAP.streetsLayer, MAP.trailsLayer]) {
+                if (!layer) continue;
+                if (visible) map.removeLayer(layer);
+                else layer.addTo(map);
+            }
             lanesBtn.classList.toggle('is-off', visible);
             lanesBtn.setAttribute('aria-pressed', String(!visible));
-            MAP.log('Bike lanes toggled', { visible: !visible });
+            MAP.log('Bike lanes and trails toggled', { visible: !visible });
         });
 
         const indegoBtn = div.querySelector('.map-toggle-indego');

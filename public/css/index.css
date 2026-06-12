@@ -685,6 +685,28 @@ body {
     transform: translateY(1px);
 }
 
+.map-route-maplinks {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.map-route-maplinks a {
+    flex: 1;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 6px 0;
+    color: var(--text);
+    text-decoration: none;
+    transition: background 0.15s ease;
+}
+
+.map-route-maplinks a:hover {
+    background: var(--control-hover);
+}
+
 .map-route-actions {
     display: flex;
     gap: 8px;
