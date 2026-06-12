@@ -288,17 +288,6 @@ body {
     background: var(--control-hover);
 }
 
-.map-indego-applink {
-    display: block;
-    margin-top: 8px;
-    color: var(--accent);
-    font-size: 11px;
-    text-decoration: none;
-}
-
-.map-indego-applink:hover {
-    text-decoration: underline;
-}
 
 /* --- Route planner --- */
 

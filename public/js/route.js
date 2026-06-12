@@ -1114,13 +1114,6 @@ ROUTE.attach = (map) => {
                     const stats = s
                         ? `${bikes} bikes${ebikes ? ` (${ebikes} electric)` : ''} · ${docks} docks`
                         : '';
-                    // GBFS per-station deep link: opens the Indego app to
-                    // this station if installed, store/web otherwise.
-                    const appLink = st.rental_uris
-                        ? (/iPad|iPhone|iPod/.test(navigator.userAgent)
-                            ? st.rental_uris.ios
-                            : st.rental_uris.android)
-                        : null;
                     marker.bindPopup(`
                         <div class="map-indego-popup">
                             <div class="map-indego-name">${ROUTE.escapeHtml(st.name)}</div>
@@ -1129,8 +1122,6 @@ ROUTE.attach = (map) => {
                                 <button type="button" data-act="start">Start here</button>
                                 <button type="button" data-act="end">Route here</button>
                             </div>
-                            ${appLink ? `<a class="map-indego-applink" href="${ROUTE.escapeHtml(appLink)}"
-                                target="_blank" rel="noopener">Open in Indego app ↗</a>` : ''}
                         </div>
                     `);
                     marker.on('popupopen', () => {
