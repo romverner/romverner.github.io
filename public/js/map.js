@@ -27,9 +27,20 @@ MAP.CONFIG = {
         'Paint Buffered',
         'Paint Buffered w Conventional',
     ],
+    septaColors: { L: '#0097d6', B: '#f26100' },
+    hinUrl: 'public/json/hin.geojson',
+    hinColor: '#e53935',
     streetsUrl: 'public/json/lanes.geojson',
     trailsUrl: 'public/json/trails.geojson',
     cityLimitsUrl: 'public/json/city_limits.geojson',
+    counties: Object.fromEntries(
+        ['delaware', 'montgomery', 'bucks', 'camden', 'burlington'].map((k) => [k, {
+            label: { delaware: 'Delaware County', montgomery: 'Montgomery County',
+                     bucks: 'Bucks County', camden: 'Camden County',
+                     burlington: 'Burlington County' }[k],
+            boundaryUrl: `public/json/county-${k}.geojson`,
+            lanesUrl: `public/json/lanes-${k}.geojson`,
+        }])),
     metaUrl: 'public/json/meta.json',
     trailColors: {
         'Paved Trail':   '#00897b',
@@ -143,6 +154,34 @@ MAP.labelStreets = async (map) => {
     }
 };
 
+// Philadelphia's High Injury Network: the corridors where most serious
+// crashes happen. An opt-in safety overlay, drawn as a translucent red
+// halo beneath the bike lanes in its own pane (off by default).
+MAP.labelHIN = async (map) => {
+    try {
+        map.createPane('hin');
+        map.getPane('hin').style.zIndex = 350;
+        const data = await (await fetch(MAP.CONFIG.hinUrl)).json();
+        MAP.hinLayer = L.geoJSON(data, {
+            pane: 'hin',
+            renderer: L.canvas({ pane: 'hin' }),
+            style: { color: MAP.CONFIG.hinColor, weight: 6, opacity: 0.45 },
+            interactive: false,
+        });
+        MAP.log('HIN loaded', { corridors: data.features.length });
+    } catch (err) {
+        MAP.error(err);
+    }
+};
+
+MAP.toggleHIN = (map) => {
+    if (!MAP.hinLayer) return false;
+    const visible = map.hasLayer(MAP.hinLayer);
+    if (visible) map.removeLayer(MAP.hinLayer);
+    else MAP.hinLayer.addTo(map);
+    return !visible;
+};
+
 MAP.labelTrails = async (map) => {
     try {
         const res = await fetch(MAP.CONFIG.trailsUrl);
@@ -166,44 +205,154 @@ MAP.labelTrails = async (map) => {
     }
 };
 
+// Covered regions (Philadelphia + any loaded neighbor counties) un-dim
+// the basemap; everything else stays dimmed. The mask lives in its own
+// low pane so re-drawing it when a county is added never covers the
+// bike-lane/route layers above it.
+MAP._regionRings = [];   // array of [lat,lng] outer rings to un-dim
+MAP._maskLayer = null;
+MAP.countyLaneLayers = [];
+
+const ringsFromGeoJSON = (data) => {
+    const rings = [];
+    for (const f of data.features) {
+        const polys = f.geometry.type === 'Polygon'
+            ? [f.geometry.coordinates]
+            : f.geometry.coordinates;
+        for (const poly of polys) {
+            rings.push(poly[0].map(([lng, lat]) => [lat, lng]));
+        }
+    }
+    return rings;
+};
+
+MAP.redrawMask = (map) => {
+    if (MAP._maskLayer) map.removeLayer(MAP._maskLayer);
+    const world = [[-89, -179], [-89, 179], [89, 179], [89, -179]];
+    MAP._maskLayer = L.polygon([world, ...MAP._regionRings], {
+        pane: 'coverageMask',
+        stroke: false,
+        fillColor: '#1c262c',
+        fillOpacity: 0.42,
+        interactive: false,
+    }).addTo(map);
+};
+
+MAP.addRegion = (map, data, dashed) => {
+    MAP._regionRings.push(...ringsFromGeoJSON(data));
+    MAP.redrawMask(map);
+    L.geoJSON(data, {
+        style: { color: '#37474f', weight: 2, dashArray: dashed, fill: false },
+        interactive: false,
+    }).addTo(map);
+};
+
 MAP.drawCityLimits = async (map) => {
     try {
-        const res = await fetch(MAP.CONFIG.cityLimitsUrl);
-        const data = await res.json();
-
-        // Dim everything outside the city: a world-sized polygon with the
-        // city boundary as a hole. Routing data only covers Philadelphia.
-        const cityRings = [];
-        for (const f of data.features) {
-            const polys = f.geometry.type === 'Polygon'
-                ? [f.geometry.coordinates]
-                : f.geometry.coordinates;
-            for (const poly of polys) {
-                cityRings.push(poly[0].map(([lng, lat]) => [lat, lng]));
-            }
-        }
-        const world = [[-89, -179], [-89, 179], [89, 179], [89, -179]];
-        L.polygon([world, ...cityRings], {
-            stroke: false,
-            fillColor: '#1c262c',
-            fillOpacity: 0.42,
-            interactive: false,
-        }).addTo(map);
-
-        L.geoJSON(data, {
-            style: {
-                color: '#37474f',
-                weight: 2,
-                dashArray: '8 6',
-                fill: false,
-            },
-            interactive: false,
-        }).addTo(map);
-
-        MAP.log('City limits drawn', { rings: cityRings.length });
+        map.createPane('coverageMask');
+        map.getPane('coverageMask').style.zIndex = 250;
+        map.getPane('coverageMask').style.pointerEvents = 'none';
+        const data = await (await fetch(MAP.CONFIG.cityLimitsUrl)).json();
+        MAP.addRegion(map, data, '8 6');
+        MAP.log('City limits drawn');
     } catch (err) {
         MAP.error(err);
     }
+};
+
+// Draw a county's bike facilities + un-dim it (display only — the routing
+// graph is loaded separately via ROUTE.loadCounty).
+MAP.drawCountyDisplay = async (map, key) => {
+    const cfg = MAP.CONFIG.counties[key];
+    const [boundary, lanes] = await Promise.all([
+        fetch(cfg.boundaryUrl).then((r) => r.json()),
+        fetch(cfg.lanesUrl).then((r) => r.json()),
+    ]);
+    const layer = L.geoJSON(lanes, {
+        renderer: L.canvas(),
+        style: (f) => ({
+            color: f.properties.COLOR,
+            weight: 2,
+            opacity: 0.85,
+            dashArray: f.properties.DASH || null,
+        }),
+    }).addTo(map);
+    MAP.countyLaneLayers.push(layer);
+    MAP.addRegion(map, boundary, '6 6');
+    return boundary;
+};
+
+// Clickable affordance for a county that hasn't been added yet.
+MAP.addCounties = async (map) => {
+    // Temporarily disabled — keep the focus on Philadelphia. (Re-enable via
+    // ROUTE.COUNTIES_ENABLED; all county build artifacts are preserved.)
+    if (typeof ROUTE === 'undefined' || !ROUTE.COUNTIES_ENABLED) return;
+    const loaded = new Set((ROUTE.loadedCounties) ? ROUTE.loadedCounties() : []);
+    for (const [key, cfg] of Object.entries(MAP.CONFIG.counties)) {
+        if (loaded.has(key)) {
+            MAP.drawCountyDisplay(map, key).catch(MAP.error);
+            continue;
+        }
+        try {
+            const boundary = await (await fetch(cfg.boundaryUrl)).json();
+            MAP.addCountyAffordance(map, key, cfg, boundary);
+        } catch (err) {
+            MAP.error(err);
+        }
+    }
+};
+
+MAP.COUNTY_REST = { color: '#78909c', weight: 1.5, dashArray: '5 5',
+                    fillColor: '#78909c', fillOpacity: 0.06 };
+MAP.COUNTY_HOVER = { color: '#b0bec5', weight: 2, dashArray: null,
+                     fillColor: '#90a4ae', fillOpacity: 0.22 };
+
+MAP.addCountyAffordance = (map, key, cfg, boundary) => {
+    const group = L.layerGroup().addTo(map);
+    const region = L.geoJSON(boundary, { style: MAP.COUNTY_REST }).addTo(group);
+    region.eachLayer((l) => l.getElement && l.getElement()?.classList.add('map-county-add'));
+
+    const center = region.getBounds().getCenter();
+    const chip = L.marker(center, {
+        icon: L.divIcon({
+            className: '',
+            html: `<button type="button" class="map-county-chip">+ Add ${cfg.label}</button>`,
+            iconSize: [null, null],
+        }),
+    }).addTo(group);
+
+    // Hover anywhere on the county (region or its chip) highlights it.
+    let hovering = false;
+    const setHover = (on) => {
+        hovering = on;
+        region.setStyle(on ? MAP.COUNTY_HOVER : MAP.COUNTY_REST);
+        const btn = chip.getElement()?.querySelector('.map-county-chip');
+        if (btn && !btn.disabled) btn.classList.toggle('is-hover', on);
+    };
+    region.on('mouseover', () => setHover(true));
+    region.on('mouseout', () => setHover(false));
+    chip.on('mouseover', () => setHover(true));
+    chip.on('mouseout', () => setHover(false));
+
+    const activate = async (ev) => {
+        if (ev) L.DomEvent.stop(ev);
+        const btn = chip.getElement()?.querySelector('.map-county-chip');
+        if (btn) { btn.textContent = `Loading ${cfg.label}…`; btn.disabled = true; }
+        try {
+            await Promise.all([
+                MAP.drawCountyDisplay(map, key),
+                (typeof ROUTE !== 'undefined' && ROUTE.loadCounty)
+                    ? ROUTE.loadCounty(key) : Promise.resolve(),
+            ]);
+            map.removeLayer(group);
+            MAP.log('County added', { key });
+        } catch (err) {
+            MAP.error(err);
+            if (btn) { btn.textContent = `+ Add ${cfg.label}`; btn.disabled = false; }
+        }
+    };
+    region.on('click', activate);
+    chip.on('click', activate);
 };
 
 MAP.addMetaBanner = async (map) => {
@@ -283,12 +432,27 @@ MAP.addLegend = (map) => {
                 <span>Indego station</span>
             </div>
         `;
+        const septaRow = (line, color, label) => `
+            <div class="map-legend-row">
+                <span class="map-legend-swatch map-legend-swatch-bullet"
+                    style="background:${color}">${line}</span>
+                <span>${label}</span>
+            </div>
+        `;
+        const septaRows = septaRow('L', MAP.CONFIG.septaColors.L, 'Market-Frankford Line')
+            + septaRow('B', MAP.CONFIG.septaColors.B, 'Broad Street Line');
+        const hinRow = `
+            <div class="map-legend-row">
+                <span class="map-legend-swatch" style="background:${MAP.CONFIG.hinColor};opacity:0.55;height:6px"></span>
+                <span>High injury corridor</span>
+            </div>
+        `;
         div.innerHTML = `
             <button type="button" class="map-legend-toggle" aria-expanded="false">
                 <span>Bike Lanes</span>
                 <span class="map-legend-chevron" aria-hidden="true">▾</span>
             </button>
-            <div class="map-legend-body">${rows}${indegoRow}</div>
+            <div class="map-legend-body">${rows}${indegoRow}${septaRows}${hinRow}</div>
         `;
 
         const toggle = div.querySelector('.map-legend-toggle');
@@ -432,6 +596,21 @@ MAP.addLocateControl = (map) => {
                     <circle cx="12" cy="9" r="2.5"/>
                 </svg>
             </button>
+            <button type="button" class="map-locate-btn map-toggle-septa" aria-pressed="true" aria-label="Toggle SEPTA subway stations" title="Toggle SEPTA subway stations">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="6" y="3" width="12" height="15" rx="3"/>
+                    <path d="M6 11h12"/>
+                    <path d="M9 18 7 21"/>
+                    <path d="M15 18l2 3"/>
+                </svg>
+            </button>
+            <button type="button" class="map-locate-btn map-toggle-hin is-off" aria-pressed="false" aria-label="Toggle High Injury Network" title="High Injury Network (crash corridors)">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10.3 3.2 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.2a2 2 0 0 0-3.4 0Z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/>
+                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+            </button>
             <button type="button" class="map-locate-btn map-open-settings" aria-label="Settings" title="Settings">
                 <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="12" cy="12" r="3"/>
@@ -444,7 +623,7 @@ MAP.addLocateControl = (map) => {
         lanesBtn.addEventListener('click', () => {
             if (!MAP.streetsLayer) return;
             const visible = map.hasLayer(MAP.streetsLayer);
-            for (const layer of [MAP.streetsLayer, MAP.trailsLayer]) {
+            for (const layer of [MAP.streetsLayer, MAP.trailsLayer, ...MAP.countyLaneLayers]) {
                 if (!layer) continue;
                 if (visible) map.removeLayer(layer);
                 else layer.addTo(map);
@@ -465,6 +644,25 @@ MAP.addLocateControl = (map) => {
             indegoBtn.classList.toggle('is-off', !e.visible);
             indegoBtn.setAttribute('aria-pressed', String(e.visible));
             MAP.log('Indego visibility', { visible: e.visible });
+        });
+
+        const septaBtn = div.querySelector('.map-toggle-septa');
+        septaBtn.addEventListener('click', () => {
+            if (typeof ROUTE === 'undefined' || !ROUTE.toggleSepta) return;
+            ROUTE.toggleSepta();
+        });
+        map.on('romv:septa', (e) => {
+            septaBtn.classList.toggle('is-off', !e.visible);
+            septaBtn.setAttribute('aria-pressed', String(e.visible));
+            MAP.log('SEPTA visibility', { visible: e.visible });
+        });
+
+        const hinBtn = div.querySelector('.map-toggle-hin');
+        hinBtn.addEventListener('click', () => {
+            const visible = MAP.toggleHIN(map);
+            hinBtn.classList.toggle('is-off', !visible);
+            hinBtn.setAttribute('aria-pressed', String(visible));
+            MAP.log('HIN visibility', { visible });
         });
 
         div.querySelector('.map-open-settings').addEventListener('click', () => {
@@ -523,9 +721,13 @@ MAP.init = () => {
         MAP.drawCityLimits(map);
         MAP.labelStreets(map);
         MAP.labelTrails(map);
+        MAP.labelHIN(map);
         MAP.addMetaBanner(map);
         MAP.addLegend(map);
         MAP.addLocateControl(map);
+        // Defer one tick so route.js (loaded after map.js) has defined
+        // ROUTE.loadedCounties() before we decide add-affordance vs restore.
+        setTimeout(() => MAP.addCounties(map), 0);
     }
 };
 

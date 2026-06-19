@@ -1,11 +1,11 @@
 const ROUTE = ROMV.createModule('ROUTE');
 
 ROUTE.CONFIG = {
-    graphUrl: 'public/json/graph.json?v=2',
+    graphUrl: 'public/json/graph.json?v=3',
     bikeSpeedMph: 9,
     defaultSafety: 0.8,
     laneCategories: [
-        { key: 'trail',     label: 'Trail',          color: '#00897b', types: [12],     penalty: 0.9 },
+        { key: 'trail',     label: 'Trail',          color: '#00897b', types: [12],     penalty: 0.65 },
         { key: 'trailSoft', label: 'Unpaved trail',  color: '#8d6e63', types: [13],     penalty: 1.4 },
         { key: 'protected', label: 'Protected lane', color: '#2e7d32', types: [0, 1, 2], penalty: 1.0 },
         { key: 'buffered',  label: 'Buffered lane',  color: '#7cb342', types: [3, 4],    penalty: 1.3 },
@@ -23,12 +23,24 @@ ROUTE.CONFIG = {
     classPenaltyDefault: 1.8,
     sharrowDiscount: 0.85,
     sharrowCap: 2.3,
+    // Edges on the High Injury Network cost more, scaled by the safety
+    // slider (1x at Shortest, this factor at Safest). Applied ONLY to
+    // streets without protective bike infrastructure (base penalty above
+    // hinMinPenalty) — a protected/buffered lane on a high-injury corridor
+    // is the city's mitigation, so we keep it rather than detour onto a
+    // bare side street. This nudges the unprotected portions of a route off
+    // the worst corridors without sacrificing the lane network.
+    hinFactor: 1.8,
+    hinMinPenalty: 1.4,
     routeCasingStyle: { color: '#263238', weight: 9, opacity: 0.85 },
     routeStyle: { weight: 5, opacity: 0.95 },
     indegoInfoUrl: 'https://gbfs.bcycle.com/bcycle_indego/station_information.json',
     indegoStatusUrl: 'https://gbfs.bcycle.com/bcycle_indego/station_status.json',
-    indegoMinZoom: 13,
+    indegoMinZoom: 15,
     indegoColors: { empty: '#b9d7f1', filled: '#1d3a63', ebike: '#76bc21' },
+    septaUrl: 'public/json/septa.geojson',
+    septaMinZoom: 12,
+    septaColors: { L: '#0097d6', B: '#f26100' },
 };
 
 // --- Saved waypoints (this device only) ---
@@ -68,6 +80,34 @@ ROUTE.escapeHtml = (s) => s.replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));
 
+// Neighbor-county loading is temporarily disabled while cross-border
+// stitching is refined; flip to true to re-enable (build artifacts and
+// merge logic are kept intact). Keeps the focus on Philadelphia.
+ROUTE.COUNTIES_ENABLED = false;
+
+// Loaded neighbor counties persist on the device so a regular cross-county
+// rider doesn't re-add them every visit.
+ROUTE.COUNTIES_KEY = 'romv-loaded-counties';
+
+ROUTE.loadedCounties = () => {
+    try {
+        const list = JSON.parse(localStorage.getItem(ROUTE.COUNTIES_KEY) || '[]');
+        return Array.isArray(list) ? list.filter((k) => typeof k === 'string') : [];
+    } catch (_) {
+        return [];
+    }
+};
+
+ROUTE.persistCounty = (key) => {
+    try {
+        const set = new Set(ROUTE.loadedCounties());
+        set.add(key);
+        localStorage.setItem(ROUTE.COUNTIES_KEY, JSON.stringify([...set]));
+    } catch (err) {
+        ROUTE.error(err);
+    }
+};
+
 // --- Graph + routing (no Leaflet dependency) ---
 
 ROUTE.decodeGraph = (raw) => {
@@ -89,9 +129,13 @@ ROUTE.decodeGraph = (raw) => {
     const category = new Uint8Array(raw.edges.length);
     const penalty = new Float64Array(raw.edges.length);
     raw.edges.forEach((e, i) => {
-        const [a, b, dir, type, cls] = e;
-        if (dir !== 2) adjacency[a].push({ edge: i, fwd: true });
-        if (dir !== 1) adjacency[b].push({ edge: i, fwd: false });
+        const [a, b, , type, cls] = e;
+        // Every edge is traversable both ways: a cyclist can turn around or
+        // walk a block against a one-way in an instant, so the directed
+        // one-way data (e[2]) is intentionally ignored. This avoids the
+        // car-like detours/loops that one-ways force on out-and-back legs.
+        adjacency[a].push({ edge: i, fwd: true });
+        adjacency[b].push({ edge: i, fwd: false });
 
         const catIdx = typeCategory[type];
         const cat = ROUTE.CONFIG.laneCategories[catIdx];
@@ -195,7 +239,12 @@ ROUTE.findRoute = (graph, start, goal, safety) => {
             const v = fwd ? graph.edges[edge][1] : graph.edges[edge][0];
             if (closed[v]) continue;
             const len = graph.edges[edge][5];
-            const cost = len * (1 + safety * (graph.penalty[edge] - 1));
+            // HIN surcharge, but only on streets lacking protective infra.
+            const hinMult = (graph.hin && graph.hin[edge]
+                && graph.penalty[edge] > ROUTE.CONFIG.hinMinPenalty)
+                ? 1 + safety * (ROUTE.CONFIG.hinFactor - 1)
+                : 1;
+            const cost = len * (1 + safety * (graph.penalty[edge] - 1)) * hinMult;
             const alt = dist[u] + cost;
             if (alt < dist[v]) {
                 dist[v] = alt;
@@ -278,14 +327,134 @@ ROUTE.toGPX = (points, name) => {
     ].join('\n');
 };
 
-ROUTE.routeStats = (graph, route) => {
+// High Injury Network proximity index: the HIN corridors (street
+// geometry) densified to points in a spatial grid, so any route point can
+// be tested for "on a high-injury corridor" with a cheap local lookup.
+ROUTE.HIN_URL = 'public/json/hin.geojson';
+ROUTE.HIN_CELL = 0.0005;   // ~45m grid
+ROUTE.HIN_TOL_M = 18;      // route point <-> HIN corridor
+
+ROUTE.buildHinIndex = (geojson) => {
+    const grid = new Map();
+    const add = (lng, lat) => {
+        const key = `${Math.floor(lng / ROUTE.HIN_CELL)},${Math.floor(lat / ROUTE.HIN_CELL)}`;
+        let arr = grid.get(key);
+        if (!arr) { arr = []; grid.set(key, arr); }
+        arr.push(lng, lat);
+    };
+    for (const f of geojson.features) {
+        const lines = f.geometry.type === 'MultiLineString'
+            ? f.geometry.coordinates : [f.geometry.coordinates];
+        for (const line of lines) {
+            for (let i = 0; i < line.length - 1; i++) {
+                const [x1, y1] = line[i];
+                const [x2, y2] = line[i + 1];
+                const n = Math.max(1, Math.ceil(ROUTE.distanceM(y1, x1, y2, x2) / 9));
+                for (let k = 0; k <= n; k++) {
+                    const t = k / n;
+                    add(x1 + t * (x2 - x1), y1 + t * (y2 - y1));
+                }
+            }
+        }
+    }
+    return grid;
+};
+
+ROUTE.nearHin = (grid, lat, lng) => {
+    if (!grid) return false;
+    const cx = Math.floor(lng / ROUTE.HIN_CELL);
+    const cy = Math.floor(lat / ROUTE.HIN_CELL);
+    for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+            const arr = grid.get(`${cx + dx},${cy + dy}`);
+            if (!arr) continue;
+            for (let i = 0; i < arr.length; i += 2) {
+                if (ROUTE.distanceM(lat, lng, arr[i + 1], arr[i]) <= ROUTE.HIN_TOL_M) return true;
+            }
+        }
+    }
+    return false;
+};
+
+// Is a route edge on the HIN? Sample points along it; majority near a
+// corridor counts (street blocks are short, so this is a good proxy).
+ROUTE.edgeOnHin = (graph, edge, fwd, grid) => {
+    if (!grid) return false;
+    const pts = ROUTE.edgeLatLngs(graph, edge, fwd);
+    const step = Math.max(1, Math.floor(pts.length / 4));
+    let near = 0;
+    let total = 0;
+    for (let i = 0; i < pts.length; i += step) {
+        total++;
+        if (ROUTE.nearHin(grid, pts[i][0], pts[i][1])) near++;
+    }
+    return total > 0 && near / total >= 0.5;
+};
+
+// Flag every edge as on/off the High Injury Network (once, after the HIN
+// index is available) so routing can weight it without a per-route scan.
+ROUTE.computeHinFlags = (graph, hinGrid) => {
+    const hin = new Uint8Array(graph.edges.length);
+    if (hinGrid) {
+        for (let i = 0; i < graph.edges.length; i++) {
+            if (ROUTE.edgeOnHin(graph, i, true, hinGrid)) hin[i] = 1;
+        }
+    }
+    return hin;
+};
+
+ROUTE.routeStats = (graph, route, hinGrid) => {
     const byCategory = ROUTE.CONFIG.laneCategories.map(() => 0);
-    for (const { edge } of route.steps) {
-        byCategory[graph.category[edge]] += graph.edges[edge][5];
+    const hinByCategory = ROUTE.CONFIG.laneCategories.map(() => 0);
+    for (const { edge, fwd } of route.steps) {
+        const cat = graph.category[edge];
+        const len = graph.edges[edge][5];
+        byCategory[cat] += len;
+        if (hinGrid && ROUTE.edgeOnHin(graph, edge, fwd, hinGrid)) hinByCategory[cat] += len;
     }
     return ROUTE.CONFIG.laneCategories
-        .map((cat, i) => ({ ...cat, meters: byCategory[i] }))
+        .map((cat, i) => ({ ...cat, meters: byCategory[i], hinMeters: hinByCategory[i] }))
         .filter((c) => c.meters > 0);
+};
+
+// --- Elevation (per-node ground elevation, indexed to graph nodes) ---
+
+ROUTE.ELEV_URL = 'public/json/elevations.json';
+ROUTE.M_TO_FT = 3.28084;
+
+ROUTE.routeNodeSeq = (graph, steps) => {
+    if (!steps.length) return [];
+    const first = steps[0];
+    const start = first.fwd ? graph.edges[first.edge][0] : graph.edges[first.edge][1];
+    const seq = [{ node: start, dist: 0 }];
+    let cum = 0;
+    for (const s of steps) {
+        const e = graph.edges[s.edge];
+        cum += e[5];
+        seq.push({ node: s.fwd ? e[1] : e[0], dist: cum });
+    }
+    return seq;
+};
+
+// Total climb/descent in feet along the route (sum of node-to-node rises).
+ROUTE.routeClimb = (graph, steps) => {
+    if (!graph.elev) return null;
+    const seq = ROUTE.routeNodeSeq(graph, steps);
+    let gain = 0;
+    let loss = 0;
+    for (let i = 1; i < seq.length; i++) {
+        const dz = graph.elev[seq[i].node] - graph.elev[seq[i - 1].node];
+        if (Number.isFinite(dz)) { if (dz > 0) gain += dz; else loss -= dz; }
+    }
+    return { gainFt: gain * ROUTE.M_TO_FT, lossFt: loss * ROUTE.M_TO_FT };
+};
+
+// Elevation profile points (distance m, elevation ft) for a sparkline.
+ROUTE.elevProfile = (graph, steps) => {
+    if (!graph.elev) return null;
+    return ROUTE.routeNodeSeq(graph, steps)
+        .map((p) => ({ d: p.dist, z: graph.elev[p.node] * ROUTE.M_TO_FT }))
+        .filter((p) => Number.isFinite(p.z));
 };
 
 // --- Map UI ---
@@ -293,6 +462,8 @@ ROUTE.routeStats = (graph, route) => {
 ROUTE.attach = (map) => {
     const state = {
         graph: null,
+        rawGraph: null,
+        counties: {},
         loading: false,
         active: false,
         start: null,
@@ -301,9 +472,53 @@ ROUTE.attach = (map) => {
         legPaths: null,
         breakdownOpen: false,
         waypointsOpen: false,
+        hinGrid: null,
+        elevData: null,
         safety: ROUTE.CONFIG.defaultSafety,
         routeLayer: L.layerGroup().addTo(map),
     };
+
+    // Apply per-edge HIN flags once both the graph and the HIN index exist
+    // (either may finish loading first).
+    const applyHinFlags = () => {
+        if (state.graph && state.hinGrid && !state.graph.hin) {
+            state.graph.hin = ROUTE.computeHinFlags(state.graph, state.hinGrid);
+            ROUTE.log('HIN edge flags applied',
+                { flagged: state.graph.hin.reduce((a, b) => a + b, 0) });
+        }
+    };
+
+    // Attach per-node elevations to the graph once both are loaded.
+    const applyElev = () => {
+        if (state.graph && state.elevData && !state.graph.elev) {
+            state.graph.elev = state.elevData;  // index i = graph node i
+            ROUTE.log('Elevations attached', { nodes: state.elevData.length });
+        }
+    };
+
+    (async () => {
+        try {
+            const data = await (await fetch(ROUTE.ELEV_URL)).json();
+            state.elevData = data.elev || [];
+            applyElev();
+        } catch (err) {
+            ROUTE.error(err);
+        }
+    })();
+
+    // Load the High Injury Network proximity index in the background so the
+    // route breakdown can flag high-injury sections and routing can weight
+    // them.
+    (async () => {
+        try {
+            const data = await (await fetch(ROUTE.HIN_URL)).json();
+            state.hinGrid = ROUTE.buildHinIndex(data);
+            applyHinFlags();
+            ROUTE.log('HIN index built', { corridors: data.features.length });
+        } catch (err) {
+            ROUTE.error(err);
+        }
+    })();
 
     const control = L.control({ position: 'topleft' });
 
@@ -364,15 +579,74 @@ ROUTE.attach = (map) => {
             iconAnchor: [13, 31],
         });
 
+        // Merge Philadelphia (kept as raw) with any loaded neighbor-county
+        // graphs into one decoded graph. Each county's `border` array maps
+        // its local node indices onto the Philadelphia node they fuse to,
+        // so cross-border edges connect at shared intersections.
+        const rebuildGraph = () => {
+            const phl = state.rawGraph;
+            const counties = Object.values(state.counties);
+            if (!counties.length) {
+                state.graph = ROUTE.decodeGraph(phl);
+                return;
+            }
+            const nodes = phl.nodes.slice();
+            const edges = phl.edges.slice();
+            let next = nodes.length / 2;
+            for (const c of counties) {
+                const border = new Map(c.border);
+                const count = c.nodes.length / 2;
+                const remap = new Int32Array(count);
+                for (let d = 0; d < count; d++) {
+                    if (border.has(d)) {
+                        remap[d] = border.get(d);
+                    } else {
+                        remap[d] = next++;
+                        nodes.push(c.nodes[d * 2], c.nodes[d * 2 + 1]);
+                    }
+                }
+                for (const e of c.edges) {
+                    const ne = e.slice();
+                    ne[0] = remap[e[0]];
+                    ne[1] = remap[e[1]];
+                    edges.push(ne);
+                }
+                // Bikeable river bridges: a two-way path edge from the
+                // county approach to the Philadelphia approach (type 12 =
+                // trail, so the router treats it as a comfortable crossing).
+                for (const [countyNode, phlNode, lengthM] of (c.bridges || [])) {
+                    edges.push([remap[countyNode], phlNode, 0, 12, 0, lengthM, []]);
+                }
+            }
+            state.graph = ROUTE.decodeGraph({
+                coordScale: phl.coordScale, types: phl.types, nodes, edges,
+            });
+        };
+
+        const fetchCounty = async (key) => {
+            const res = await fetch(`public/json/graph-${key}.json`);
+            state.counties[key] = await res.json();
+        };
+
         const ensureGraph = () => {
             if (!state.graphPromise) {
                 state.graphPromise = (async () => {
                     setHint('Loading street network…');
                     try {
-                        const res = await fetch(ROUTE.CONFIG.graphUrl);
-                        const raw = await res.json();
-                        state.graph = ROUTE.decodeGraph(raw);
-                        ROUTE.log('Graph loaded', { nodes: state.graph.count, edges: state.graph.edges.length });
+                        state.rawGraph = await (await fetch(ROUTE.CONFIG.graphUrl)).json();
+                        if (ROUTE.COUNTIES_ENABLED) {
+                            for (const key of ROUTE.loadedCounties()) {
+                                try { await fetchCounty(key); }
+                                catch (e) { ROUTE.error(e); }
+                            }
+                        }
+                        rebuildGraph();
+                        applyHinFlags();
+                        applyElev();
+                        ROUTE.log('Graph loaded', {
+                            nodes: state.graph.count, edges: state.graph.edges.length,
+                            counties: Object.keys(state.counties),
+                        });
                         setHint('Click the map to set your start point.');
                     } catch (err) {
                         ROUTE.error(err);
@@ -382,6 +656,19 @@ ROUTE.attach = (map) => {
                 })();
             }
             return state.graphPromise;
+        };
+
+        // Public: load a neighboring county and merge it in. The map UI
+        // calls this when the user taps a county to add it.
+        ROUTE.loadCounty = async (key) => {
+            if (!ROUTE.COUNTIES_ENABLED) return false;
+            await ensureGraph();
+            if (!state.rawGraph || state.counties[key]) return !!state.counties[key];
+            await fetchCounty(key);
+            rebuildGraph();
+            ROUTE.persistCounty(key);
+            if (state.start && state.end) drawRoute();
+            return true;
         };
 
         const drawRoute = () => {
@@ -442,14 +729,23 @@ ROUTE.attach = (map) => {
 
             const miles = route.distance / 1609.344;
             const minutes = Math.round((miles / ROUTE.CONFIG.bikeSpeedMph) * 60);
-            summary.textContent = `${miles.toFixed(1)} mi · ~${minutes} min`;
+            const climb = ROUTE.routeClimb(state.graph, route.steps);
+            summary.textContent = `${miles.toFixed(1)} mi · ~${minutes} min`
+                + (climb ? ` · ↑${Math.round(climb.gainFt)} ft` : '');
             state.lastPath = fullPath;
             state.lastMiles = miles;
             exportBtn.hidden = false;
 
-            const stats = ROUTE.routeStats(state.graph, route);
+            const stats = ROUTE.routeStats(state.graph, route, state.hinGrid);
+            const hinMeters = stats.reduce((s, c) => s + c.hinMeters, 0);
             const bar = stats.map((c) =>
                 `<span style="flex:${c.meters};background:${c.color}"></span>`).join('');
+            // A thin red bar under the lane bar, aligned by the same flex
+            // weights: each segment's red span marks the share of that lane
+            // type that runs on a high-injury corridor.
+            const hinbar = hinMeters > 0
+                ? stats.map((c) => `<span style="flex:${c.meters}"><i style="width:${(c.hinMeters / c.meters) * 100}%"></i></span>`).join('')
+                : '';
             const rows = stats.map((c) => `
                 <div class="map-route-breakdown-row">
                     <span class="map-legend-swatch" style="background:${c.color}"></span>
@@ -457,13 +753,46 @@ ROUTE.attach = (map) => {
                     <span class="map-route-breakdown-pct">${Math.round((c.meters / route.distance) * 100)}%</span>
                 </div>
             `).join('');
+            const hinNote = hinMeters > 0
+                ? `<div class="map-route-hin-note">⚠ ${Math.round((hinMeters / route.distance) * 100)}% on high-injury corridors — take extra care</div>`
+                : '';
+
+            // Elevation profile sparkline (shown in the expanded breakdown).
+            const profile = ROUTE.elevProfile(state.graph, route.steps);
+            let elevBlock = '';
+            if (climb && profile && profile.length > 1) {
+                const W = 100;
+                const H = 28;
+                const maxD = profile[profile.length - 1].d || 1;
+                let minZ = Infinity;
+                let maxZ = -Infinity;
+                for (const p of profile) { minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
+                const range = Math.max(maxZ - minZ, 1);
+                const px = (d) => (d / maxD) * W;
+                const py = (z) => H - 2 - ((z - minZ) / range) * (H - 4);
+                const pts = profile.map((p) => `${px(p.d).toFixed(1)},${py(p.z).toFixed(1)}`);
+                const line = `M${pts.join(' L')}`;
+                elevBlock = `
+                    <div class="map-route-elev-head">
+                        <span>Elevation</span>
+                        <span class="map-route-elev-stat">↑${Math.round(climb.gainFt)} ft · ↓${Math.round(climb.lossFt)} ft</span>
+                    </div>
+                    <svg class="map-route-elev" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+                        <path class="map-route-elev-area" d="${line} L${W},${H} L0,${H} Z"/>
+                        <path class="map-route-elev-line" d="${line}"/>
+                    </svg>`;
+            }
+
             breakdown.innerHTML = `
                 <button type="button" class="map-route-bar-toggle" title="Show lane mix"
                     aria-expanded="${state.breakdownOpen}">
-                    <span class="map-route-bar">${bar}</span>
+                    <span class="map-route-bar-stack">
+                        <span class="map-route-bar">${bar}</span>
+                        ${hinbar ? `<span class="map-route-hinbar">${hinbar}</span>` : ''}
+                    </span>
                     <span class="map-legend-chevron" aria-hidden="true">▾</span>
                 </button>
-                <div class="map-route-breakdown-rows">${rows}</div>
+                <div class="map-route-breakdown-rows">${elevBlock}${rows}${hinNote}</div>
             `;
             breakdown.classList.toggle('is-collapsed', !state.breakdownOpen);
             const barToggle = breakdown.querySelector('.map-route-bar-toggle');
@@ -850,6 +1179,13 @@ ROUTE.attach = (map) => {
                         back.</p>
                     </div>
                     <div class="map-route-help-item">
+                        <div class="map-route-help-item-title">Subway stations</div>
+                        <p>SEPTA Market-Frankford (L, blue) and Broad Street (B,
+                        orange) stations show as line bullets when you zoom in — handy
+                        for a bike-and-ride trip. Tap one to start or end your route
+                        there.</p>
+                    </div>
+                    <div class="map-route-help-item">
                         <div class="map-route-help-item-title">Saved waypoints</div>
                         <p>Save the A or B pin as a named waypoint (Home, Work…) —
                         stored on this device only. Tap a saved waypoint to use it:
@@ -862,12 +1198,17 @@ ROUTE.attach = (map) => {
                         genuinely different route — worth checking before heading back.</p>
                     </div>
                     <div class="map-route-help-item">
+                        <div class="map-route-help-item-title">High injury network</div>
+                        <p>The ⚠ button overlays Philadelphia's high-injury corridors
+                        in red — the streets where most serious crashes happen. Handy
+                        for steering a route (with the slider or a via point) away
+                        from the city's most dangerous roads.</p>
+                    </div>
+                    <div class="map-route-help-item">
                         <div class="map-route-help-item-title">Export</div>
                         <p>Share the route as a GPX file to apps like Komoot, Strava,
                         or Garmin (downloads on desktop).</p>
                     </div>
-                    <p class="map-route-help-note">Routing covers Philadelphia only —
-                    the dashed line marks the county limit.</p>
                 </div>
             `;
             L.DomEvent.disableClickPropagation(helpModal);
@@ -1008,13 +1349,14 @@ ROUTE.attach = (map) => {
 
         // Indego bike share stations: shown when zoomed in, with live
         // availability and shortcuts to route from/to a station.
-        const useStation = async (station, act, ev) => {
+        // Shared by Indego and SEPTA station popups: route from/to a
+        // station, activating the planner and loading the graph if needed.
+        const useStation = async (latlng, act, ev) => {
             L.DomEvent.stopPropagation(ev);
             map.closePopup();
             if (!state.active) setActive(true);
             await ensureGraph();
             if (!state.graph) return;
-            const latlng = L.latLng(station.lat, station.lon);
             if (act === 'start') {
                 if (!state.start) {
                     placePin(latlng);
@@ -1034,7 +1376,31 @@ ROUTE.attach = (map) => {
             }
         };
 
+        // Viewport culling for DOM marker layers: only the markers on
+        // screen (plus a margin) stay attached, so panning/zooming doesn't
+        // reposition hundreds of off-screen marker elements. Returns a
+        // sync function; call it when the active condition changes.
+        const cullMarkers = (markers, layer, isActive) => {
+            const attached = new Set();
+            const sync = () => {
+                if (!isActive()) {
+                    if (map.hasLayer(layer)) map.removeLayer(layer);
+                    return;
+                }
+                if (!map.hasLayer(layer)) layer.addTo(map);
+                const bounds = map.getBounds().pad(0.25);
+                for (const m of markers) {
+                    const inView = bounds.contains(m.getLatLng());
+                    if (inView && !attached.has(m)) { layer.addLayer(m); attached.add(m); }
+                    else if (!inView && attached.has(m)) { layer.removeLayer(m); attached.delete(m); }
+                }
+            };
+            map.on('moveend zoomend', sync);
+            return sync;
+        };
+
         const indegoLayer = L.layerGroup();
+        const indegoMarkers = [];
         let indegoVisible = true;
         let syncIndego = null;
         const setIndegoVisible = (visible) => {
@@ -1126,26 +1492,90 @@ ROUTE.attach = (map) => {
                     `);
                     marker.on('popupopen', () => {
                         for (const btn of marker.getPopup().getElement().querySelectorAll('button[data-act]')) {
-                            btn.addEventListener('click', (ev) => useStation(st, btn.dataset.act, ev));
+                            btn.addEventListener('click', (ev) =>
+                                useStation(L.latLng(st.lat, st.lon), btn.dataset.act, ev));
                         }
                     });
-                    marker.addTo(indegoLayer);
+                    indegoMarkers.push(marker);
                 }
 
-                const syncIndegoZoom = () => {
-                    const show = indegoVisible && map.getZoom() >= ROUTE.CONFIG.indegoMinZoom;
-                    if (show && !map.hasLayer(indegoLayer)) indegoLayer.addTo(map);
-                    if (!show && map.hasLayer(indegoLayer)) map.removeLayer(indegoLayer);
-                };
-                syncIndego = syncIndegoZoom;
-                map.on('zoomend', syncIndegoZoom);
-                syncIndegoZoom();
+                syncIndego = cullMarkers(indegoMarkers, indegoLayer,
+                    () => indegoVisible && map.getZoom() >= ROUTE.CONFIG.indegoMinZoom);
+                syncIndego();
                 ROUTE.log('Indego stations loaded', { count: info.data.stations.length });
             } catch (err) {
                 ROUTE.error(err);
             }
         };
         addIndegoStations();
+
+        // SEPTA subway stations (Market-Frankford "L" + Broad Street "BSL"):
+        // colored line-letter bullets, tappable as a route start/end.
+        const septaLayer = L.layerGroup();
+        const septaMarkers = [];
+        let septaVisible = true;
+        let syncSepta = null;
+        const setSeptaVisible = (visible) => {
+            septaVisible = visible;
+            if (syncSepta) syncSepta();
+            map.fire('romv:septa', { visible });
+        };
+        ROUTE.toggleSepta = () => {
+            setSeptaVisible(!septaVisible);
+            return septaVisible;
+        };
+        const addSeptaStations = async () => {
+            try {
+                const res = await fetch(ROUTE.CONFIG.septaUrl);
+                const data = await res.json();
+
+                const colors = ROUTE.CONFIG.septaColors;
+                const iconCache = {};
+                const bulletIcon = (line) => {
+                    if (iconCache[line]) return iconCache[line];
+                    const color = colors[line] || '#555';
+                    iconCache[line] = L.divIcon({
+                        className: 'map-septa-pin',
+                        html: `<span class="map-septa-bullet" style="background:${color}">${line}</span>`,
+                        iconSize: [20, 20],
+                        iconAnchor: [10, 10],
+                        popupAnchor: [0, -11],
+                    });
+                    return iconCache[line];
+                };
+
+                for (const f of data.features) {
+                    const [lon, lat] = f.geometry.coordinates;
+                    const p = f.properties;
+                    const marker = L.marker([lat, lon], { icon: bulletIcon(p.LINE) });
+                    marker.bindPopup(`
+                        <div class="map-indego-popup">
+                            <div class="map-indego-name">${ROUTE.escapeHtml(p.NAME)}</div>
+                            <div class="map-indego-stats">${ROUTE.escapeHtml(p.LINE_NAME)}</div>
+                            <div class="map-indego-actions">
+                                <button type="button" data-act="start">Start here</button>
+                                <button type="button" data-act="end">Route here</button>
+                            </div>
+                        </div>
+                    `);
+                    marker.on('popupopen', () => {
+                        for (const btn of marker.getPopup().getElement().querySelectorAll('button[data-act]')) {
+                            btn.addEventListener('click', (ev) =>
+                                useStation(L.latLng(lat, lon), btn.dataset.act, ev));
+                        }
+                    });
+                    septaMarkers.push(marker);
+                }
+
+                syncSepta = cullMarkers(septaMarkers, septaLayer,
+                    () => septaVisible && map.getZoom() >= ROUTE.CONFIG.septaMinZoom);
+                syncSepta();
+                ROUTE.log('SEPTA stations loaded', { count: data.features.length });
+            } catch (err) {
+                ROUTE.error(err);
+            }
+        };
+        addSeptaStations();
 
         renderWaypoints();
 

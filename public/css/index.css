@@ -234,6 +234,33 @@ body {
     filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
 }
 
+/* SEPTA subway bullets: a colored line-letter disc, like the Metro signage. */
+.map-septa-bullet {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    color: #fff;
+    font: 700 12px/1 system-ui, -apple-system, sans-serif;
+    border: 2px solid #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+    box-sizing: border-box;
+}
+
+.map-legend-swatch-bullet {
+    flex: 0 0 16px;
+    height: 16px;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: #fff;
+    font: 700 10px/1 system-ui, -apple-system, sans-serif;
+}
+
 /* --- Indego popups --- */
 
 .leaflet-popup-content-wrapper,
@@ -626,12 +653,85 @@ body {
     display: none;
 }
 
-.map-route-bar {
+.map-route-bar-stack {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.map-route-bar {
+    width: 100%;
     display: flex;
     height: 8px;
     border-radius: 4px;
     overflow: hidden;
+}
+
+/* Thin red bar aligned under the lane bar, marking high-injury sections. */
+.map-route-hinbar {
+    width: 100%;
+    display: flex;
+    height: 3px;
+}
+
+.map-route-hinbar > span {
+    display: block;
+}
+
+.map-route-hinbar i {
+    display: block;
+    height: 100%;
+    background: #e53935;
+    border-radius: 1.5px;
+}
+
+.map-route-hin-note {
+    display: flex;
+    align-items: baseline;
+    gap: 5px;
+    color: #ef9a9a;
+    font-size: 11px;
+    line-height: 1.4;
+    margin-top: 8px;
+}
+
+/* Elevation profile sparkline. */
+.map-route-elev-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    color: var(--text-muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+}
+
+.map-route-elev-stat {
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.map-route-elev {
+    width: 100%;
+    height: 28px;
+    display: block;
+    margin-bottom: 10px;
+}
+
+.map-route-elev-area {
+    fill: rgba(33, 150, 243, 0.18);
+    stroke: none;
+}
+
+.map-route-elev-line {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.2;
+    vector-effect: non-scaling-stroke;
 }
 
 .map-route-breakdown-row {
@@ -923,6 +1023,37 @@ body {
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
     box-sizing: border-box;
     cursor: grab;
+}
+
+/* "Add a county" affordance over a dimmed neighbor. */
+.map-county-add {
+    cursor: pointer;
+}
+
+.map-county-chip {
+    transform: translate(-50%, -50%);
+    white-space: nowrap;
+    background: var(--panel-bg);
+    backdrop-filter: var(--panel-blur);
+    -webkit-backdrop-filter: var(--panel-blur);
+    border: 1px solid var(--panel-border);
+    border-radius: 999px;
+    box-shadow: var(--panel-shadow);
+    color: var(--text);
+    font: 600 12px/1 system-ui, -apple-system, sans-serif;
+    padding: 8px 14px;
+    cursor: pointer;
+}
+
+.map-county-chip:hover,
+.map-county-chip.is-hover {
+    background: var(--panel-bg-solid);
+    border-color: var(--accent);
+}
+
+.map-county-chip:disabled {
+    opacity: 0.7;
+    cursor: default;
 }
 
 /* --- Meta banner --- */
