@@ -66,7 +66,7 @@ MAP.CONFIG = {
 MAP.SETTINGS_KEY = 'romv-settings';
 
 MAP.loadSettings = () => {
-    const defaults = { basemap: 'carto', reduceTransparency: false };
+    const defaults = { basemap: 'carto', reduceTransparency: false, throttleTiles: false };
     try {
         return { ...defaults, ...JSON.parse(localStorage.getItem(MAP.SETTINGS_KEY) || '{}') };
     } catch (_) {
@@ -85,12 +85,19 @@ MAP.saveSettings = (settings) => {
 MAP.applyBasemap = (map, key) => {
     const bm = MAP.CONFIG.basemaps[key] || MAP.CONFIG.basemaps.carto;
     if (MAP.tileLayer) map.removeLayer(MAP.tileLayer);
+    // Weak-device tile budget (opt-in via settings): hold tile requests until
+    // the pan settles and skip mid-zoom refreshes, so dragging doesn't fire a
+    // request storm or repaint the grid every animation frame. Off by default
+    // because it trades snappy in-gesture tile loading for fewer redraws.
+    const throttle = MAP.loadSettings().throttleTiles;
     MAP.tileLayer = L.tileLayer(bm.url, {
         attribution: bm.attribution,
         subdomains: bm.subdomains,
         maxZoom: bm.maxZoom,
+        updateWhenIdle: throttle,
+        updateWhenZooming: !throttle,
     }).addTo(map);
-    MAP.log('Basemap applied', { basemap: key });
+    MAP.log('Basemap applied', { basemap: key, throttleTiles: throttle });
 };
 
 MAP.applyTransparency = (reduce) => {
@@ -135,13 +142,20 @@ MAP.labelStreets = async (map) => {
             opacity: 0.85,
         });
         const majorLayer = L.geoJSON({ type: 'FeatureCollection', features: major }, { renderer, style });
-        const minorLayer = L.geoJSON({ type: 'FeatureCollection', features: minor }, { renderer, style });
 
         MAP.streetsLayer = L.layerGroup([majorLayer]).addTo(map);
+        // The minor segments are sub-pixel noise at citywide zooms, so defer
+        // building their (thousands of) path objects until the first time the
+        // user actually zooms into lane-detail range — a startup cost a weak
+        // device never pays if it stays zoomed out.
+        let minorLayer = null;
         const syncLaneDetail = () => {
             if (map.getZoom() >= MAP.CONFIG.laneDetailZoom) {
+                if (!minorLayer) {
+                    minorLayer = L.geoJSON({ type: 'FeatureCollection', features: minor }, { renderer, style });
+                }
                 MAP.streetsLayer.addLayer(minorLayer);
-            } else {
+            } else if (minorLayer) {
                 MAP.streetsLayer.removeLayer(minorLayer);
             }
         };
@@ -157,26 +171,45 @@ MAP.labelStreets = async (map) => {
 // Philadelphia's High Injury Network: the corridors where most serious
 // crashes happen. An opt-in safety overlay, drawn as a translucent red
 // halo beneath the bike lanes in its own pane (off by default).
-MAP.labelHIN = async (map) => {
-    try {
-        map.createPane('hin');
-        map.getPane('hin').style.zIndex = 350;
-        const data = await (await fetch(MAP.CONFIG.hinUrl)).json();
-        MAP.hinLayer = L.geoJSON(data, {
-            pane: 'hin',
-            renderer: L.canvas({ pane: 'hin' }),
-            style: { color: MAP.CONFIG.hinColor, weight: 6, opacity: 0.45 },
-            interactive: false,
-        });
-        MAP.log('HIN loaded', { corridors: data.features.length });
-    } catch (err) {
-        MAP.error(err);
-    }
+// Off by default, so only the (cheap) pane is set up at startup; the 252KB
+// fetch and vector-layer build are deferred to the first toggle-on, work a
+// weak device never does unless the user opts into the overlay.
+MAP.labelHIN = (map) => {
+    map.createPane('hin');
+    map.getPane('hin').style.zIndex = 350;
+};
+
+MAP._loadHIN = (map) => {
+    if (MAP._hinLoading) return MAP._hinLoading;
+    MAP._hinLoading = (async () => {
+        try {
+            const data = await (await fetch(MAP.CONFIG.hinUrl)).json();
+            MAP.hinLayer = L.geoJSON(data, {
+                pane: 'hin',
+                renderer: L.canvas({ pane: 'hin' }),
+                style: { color: MAP.CONFIG.hinColor, weight: 6, opacity: 0.45 },
+                interactive: false,
+            });
+            MAP.log('HIN loaded', { corridors: data.features.length });
+        } catch (err) {
+            MAP.error(err);
+        }
+    })();
+    return MAP._hinLoading;
 };
 
 MAP.toggleHIN = (map) => {
-    if (!MAP.hinLayer) return false;
+    // First activation builds the layer lazily; _hinWanted tracks the user's
+    // intent so a quick toggle-off before the fetch resolves still wins.
+    if (!MAP.hinLayer) {
+        MAP._hinWanted = true;
+        MAP._loadHIN(map).then(() => {
+            if (MAP.hinLayer && MAP._hinWanted) MAP.hinLayer.addTo(map);
+        });
+        return true;
+    }
     const visible = map.hasLayer(MAP.hinLayer);
+    MAP._hinWanted = !visible;
     if (visible) map.removeLayer(MAP.hinLayer);
     else MAP.hinLayer.addTo(map);
     return !visible;
@@ -444,7 +477,7 @@ MAP.addLegend = (map) => {
         const hinRow = `
             <div class="map-legend-row">
                 <span class="map-legend-swatch" style="background:${MAP.CONFIG.hinColor};opacity:0.55;height:6px"></span>
-                <span>High injury corridor</span>
+                <span>Higher-crash corridor</span>
             </div>
         `;
         div.innerHTML = `
@@ -501,6 +534,14 @@ MAP.openSettings = (map) => {
                         older devices.</small>
                     </span>
                 </label>
+                <label class="map-settings-check">
+                    <input type="checkbox" class="map-settings-throttle"
+                        ${settings.throttleTiles ? 'checked' : ''}>
+                    <span>Throttle map tiles
+                        <small>Load tiles only after panning stops and skip
+                        mid-zoom refreshes — fewer redraws on older devices.</small>
+                    </span>
+                </label>
             </div>
             <button type="button" class="map-settings-share">Share with friends</button>
         </div>
@@ -536,6 +577,15 @@ MAP.openSettings = (map) => {
         next.reduceTransparency = e.target.checked;
         MAP.saveSettings(next);
         MAP.applyTransparency(next.reduceTransparency);
+    });
+
+    overlay.querySelector('.map-settings-throttle').addEventListener('change', (e) => {
+        const next = MAP.loadSettings();
+        next.throttleTiles = e.target.checked;
+        MAP.saveSettings(next);
+        // Rebuild the tile layer so the new update options take effect; the
+        // current basemap and view are preserved.
+        MAP.applyBasemap(map, next.basemap);
     });
 
     const shareBtn = overlay.querySelector('.map-settings-share');

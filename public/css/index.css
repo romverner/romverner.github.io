@@ -26,6 +26,18 @@ body.no-blur .map-route-help-head {
     background: var(--panel-bg-solid);
 }
 
+/* An "off" toggle dims itself with opacity, which makes the whole button
+   translucent and lets the map show through it. Reduce-transparency means no
+   see-through surfaces, so drop the opacity and instead signal "off" with a
+   darker, recessed fill and a dimmer icon — all opaque, and scoped to
+   no-blur so the default transparent mode keeps its opacity dimming. */
+body.no-blur .map-locate-btn.is-off {
+    opacity: 1;
+    background: #0c1216;
+    color: #62737b;
+    box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+
 html, body {
     height: 100%;
     margin: 0;
@@ -686,14 +698,72 @@ body {
     border-radius: 1.5px;
 }
 
-.map-route-hin-note {
+/* Higher-crash-corridor rating: a calm, color-coded badge. */
+.map-route-hin-rating {
     display: flex;
-    align-items: baseline;
-    gap: 5px;
-    color: #ef9a9a;
+    align-items: center;
+    gap: 7px;
+    margin-top: 10px;
+}
+
+.map-route-hin-label {
+    color: var(--text-muted);
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.map-route-hin-badge {
+    flex: 0 0 auto;
     font-size: 11px;
-    line-height: 1.4;
-    margin-top: 8px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    padding: 2px 9px;
+    border-radius: 999px;
+    color: #fff;
+    white-space: nowrap;
+}
+
+.map-route-hin-badge.is-low   { background: #43a047; }
+.map-route-hin-badge.is-mod   { background: #f9a825; color: #1a1a1a; }
+.map-route-hin-badge.is-high  { background: #fb8c00; }
+.map-route-hin-badge.is-vhigh { background: #e53935; }
+
+.map-route-hin-info {
+    margin-left: auto;
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--panel-border);
+    color: var(--text-muted);
+    font: 600 11px/1 system-ui, -apple-system, sans-serif;
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease;
+}
+
+.map-route-hin-info:hover {
+    color: var(--text);
+    background: var(--control-hover);
+}
+
+.map-route-hin-card {
+    width: 340px;
+}
+
+.map-route-hin-card p {
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0 0 10px;
+}
+
+.map-route-hin-card p:last-child {
+    margin-bottom: 0;
+}
+
+.map-route-hin-card strong {
+    color: var(--text);
+    font-weight: 600;
 }
 
 /* Elevation profile sparkline. */

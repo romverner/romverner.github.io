@@ -408,6 +408,19 @@ ROUTE.computeHinFlags = (graph, hinGrid) => {
 // parallel to a high-injury road like the SRT alongside MLK Drive.
 ROUTE.HIN_EXEMPT_KEYS = new Set(['trail', 'trailSoft']);
 
+// Rate a route by how much of it follows higher-crash corridors. Buckets
+// keep the readout calm and at-a-glance (a colored word, not a red
+// sentence). Thresholds are share-of-route on the HIN.
+ROUTE.HIN_RATINGS = [
+    { max: 35,  key: 'low',   label: 'Low' },
+    { max: 70,  key: 'mod',   label: 'Moderate' },
+    { max: 100,  key: 'high',  label: 'High' },
+    // { max: 120, key: 'vhigh', label: 'Very high' },
+];
+
+ROUTE.hinRating = (pct) =>
+    ROUTE.HIN_RATINGS.find((r) => pct < r.max) || ROUTE.HIN_RATINGS[ROUTE.HIN_RATINGS.length - 1];
+
 ROUTE.routeStats = (graph, route, hinGrid) => {
     const byCategory = ROUTE.CONFIG.laneCategories.map(() => 0);
     const hinByCategory = ROUTE.CONFIG.laneCategories.map(() => 0);
@@ -761,8 +774,14 @@ ROUTE.attach = (map) => {
                     <span class="map-route-breakdown-pct">${Math.round((c.meters / route.distance) * 100)}%</span>
                 </div>
             `).join('');
-            const hinNote = hinMeters > 0
-                ? `<div class="map-route-hin-note">⚠ ${Math.round((hinMeters / route.distance) * 100)}% on high-injury corridors — take extra care</div>`
+            const hinPct = (hinMeters / route.distance) * 100;
+            const rating = ROUTE.hinRating(hinPct);
+            const hinNote = state.hinGrid
+                ? `<div class="map-route-hin-rating">
+                       <span class="map-route-hin-label">Crash corridors</span>
+                       <span class="map-route-hin-badge is-${rating.key}">${rating.label}</span>
+                       <button type="button" class="map-route-hin-info" aria-label="What is this rating?">?</button>
+                   </div>`
                 : '';
 
             // Elevation profile sparkline (shown in the expanded breakdown).
@@ -809,6 +828,7 @@ ROUTE.attach = (map) => {
                 breakdown.classList.toggle('is-collapsed', !state.breakdownOpen);
                 barToggle.setAttribute('aria-expanded', String(state.breakdownOpen));
             });
+            breakdown.querySelector('.map-route-hin-info')?.addEventListener('click', openHinInfo);
 
             setHint('Drag the route line to add a via point; double-click a via to remove it.');
             refreshSheet();
@@ -1136,6 +1156,38 @@ ROUTE.attach = (map) => {
             if (state.active) setHint('Click the map to set your start point.');
         };
 
+        // Focused explainer for the higher-crash-corridor rating.
+        const openHinInfo = () => {
+            const overlay = L.DomUtil.create('div', 'map-route-help-overlay', map.getContainer());
+            overlay.innerHTML = `
+                <div class="map-route-help-card map-route-hin-card">
+                    <div class="map-route-help-head">
+                        <h3>Higher-crash corridors</h3>
+                        <button type="button" class="map-route-help-close" aria-label="Close">×</button>
+                    </div>
+                    <p>Philadelphia's <strong>High Injury Network</strong> is the set of
+                    streets that see the most reported traffic crashes — a small share of
+                    streets accounting for most of the city's serious ones (it's the basis
+                    of the city's Vision Zero work).</p>
+                    <p><strong>It counts everyone.</strong> Those crash tallies include
+                    drivers, pedestrians, and cyclists together — the data doesn't break
+                    out cycling. So a “High” rating doesn't mean a route is dangerous for
+                    you specifically; it just means more of it runs along the city's
+                    busier, crash-prone corridors.</p>
+                    <p><strong>How it's used here.</strong> The rating reflects how much of
+                    your route follows these corridors (off-street trails never count).
+                    The planner also nudges the unprotected parts of a route off them when
+                    a calmer option exists — and you can see them in red with the ⚠ map
+                    toggle. Treat it as a gentle heads-up, not a warning.</p>
+                </div>
+            `;
+            L.DomEvent.disableClickPropagation(overlay);
+            L.DomEvent.disableScrollPropagation(overlay);
+            const close = (e) => { if (e) L.DomEvent.stopPropagation(e); overlay.remove(); };
+            overlay.querySelector('.map-route-help-close').addEventListener('click', close);
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) close(e); });
+        };
+
         let helpModal = null;
         const toggleHelp = () => {
             if (helpModal) {
@@ -1206,11 +1258,13 @@ ROUTE.attach = (map) => {
                         genuinely different route — worth checking before heading back.</p>
                     </div>
                     <div class="map-route-help-item">
-                        <div class="map-route-help-item-title">High injury network</div>
-                        <p>The ⚠ button overlays Philadelphia's high-injury corridors
-                        in red — the streets where most serious crashes happen. Handy
-                        for steering a route (with the slider or a via point) away
-                        from the city's most dangerous roads.</p>
+                        <div class="map-route-help-item-title">Higher-crash corridors</div>
+                        <p>The ⚠ button overlays Philadelphia's High Injury Network in
+                        red — the streets that see more reported crashes. One thing to
+                        know: this data counts all crashes (drivers, pedestrians, and
+                        cyclists together), so it's a general awareness cue, not a
+                        cyclist-specific danger map. Handy for giving busier corridors a
+                        bit of extra attention.</p>
                     </div>
                     <div class="map-route-help-item">
                         <div class="map-route-help-item-title">Export</div>
@@ -1437,15 +1491,15 @@ ROUTE.attach = (map) => {
                 // Indego-app-style pin: the teardrop fills bottom-up with
                 // the share of docks holding bikes; a lightning badge
                 // marks stations with e-bikes available. Fill is bucketed
-                // to tenths so all 310 markers share a couple dozen cached
+                // to eighths so all 310 markers share a couple dozen cached
                 // icons instead of one unique gradient each.
                 const colors = ROUTE.CONFIG.indegoColors;
                 const iconCache = {};
                 const pinIcon = (frac, hasEbike) => {
-                    const bucket = Math.max(0, Math.min(10, Math.round(frac * 10)));
+                    const bucket = Math.max(0, Math.min(8, Math.round(frac * 8)));
                     const key = `${bucket}${hasEbike ? 'e' : ''}`;
                     if (iconCache[key]) return iconCache[key];
-                    const off = 1 - bucket / 10;
+                    const off = 1 - bucket / 8;
                     const badge = hasEbike ? `
                         <circle cx="8" cy="8" r="6.5" fill="${colors.ebike}" stroke="#fff" stroke-width="1.5"/>
                         <path d="M9.2 3.8 5.4 8.9h2.2l-0.8 3.3 3.8-5.1H8.4z" fill="#fff"/>
