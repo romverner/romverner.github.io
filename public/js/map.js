@@ -106,7 +106,11 @@ MAP.applyTransparency = (reduce) => {
 
 MAP.create = (elementId, { center = [0, 0], zoom = 2 } = {}) => {
     try {
-        const map = L.map(elementId).setView(center, zoom);
+        // rotate:true enables the leaflet-rotate plugin's bearing support
+        // (used by navigation mode to keep the user's heading pointing up).
+        // We supply our own nav button, so the plugin's default control is off.
+        const map = L.map(elementId, { rotate: true, rotateControl: false })
+            .setView(center, zoom);
         map.zoomControl.setPosition('topright');
 
         const settings = MAP.loadSettings();
@@ -622,7 +626,15 @@ MAP.addLocateControl = (map) => {
     control.onAdd = () => {
         const div = L.DomUtil.create('div', 'leaflet-bar map-locate');
         div.innerHTML = `
-            <button type="button" class="map-locate-btn" aria-label="Show my location" title="Show my location">
+            <button type="button" class="map-locate-btn map-compass-btn" aria-label="Reset map to north" title="Reset north" hidden>
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                    <g class="map-compass-needle">
+                        <path d="M12 4 9.5 12.5h5z" fill="#e53935"/>
+                        <path d="M12 20 9.5 11.5h5z" fill="#9fb1ba"/>
+                    </g>
+                </svg>
+            </button>
+            <button type="button" class="map-locate-btn map-locate-me" aria-pressed="false" aria-label="Track my location" title="Track my location">
                 <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                     <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/>
                     <circle cx="12" cy="12" r="7"/>
@@ -630,6 +642,11 @@ MAP.addLocateControl = (map) => {
                     <line x1="12" y1="19" x2="12" y2="22"/>
                     <line x1="2" y1="12" x2="5" y2="12"/>
                     <line x1="19" y1="12" x2="22" y2="12"/>
+                </svg>
+            </button>
+            <button type="button" class="map-locate-btn map-nav-toggle is-off" aria-pressed="false" aria-label="Navigation mode (follow and rotate to heading)" title="Navigation mode (center & rotate to heading)">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="currentColor">
+                    <path d="M12 2 5 21l7-4 7 4z"/>
                 </svg>
             </button>
             <button type="button" class="map-locate-btn map-toggle-lanes" aria-pressed="true" aria-label="Toggle bike lanes" title="Toggle bike lanes">
@@ -719,41 +736,138 @@ MAP.addLocateControl = (map) => {
             MAP.openSettings(map);
         });
 
-        const btn = div.querySelector('.map-locate-btn');
+        const locateBtn = div.querySelector('.map-locate-me');
+        const navBtn = div.querySelector('.map-nav-toggle');
         let marker = null;
         let accuracyCircle = null;
+        let trackingTimer = null;
+        let navMode = false;
+        let lastFix = null;
 
-        btn.addEventListener('click', () => {
-            btn.classList.add('is-loading');
-            map.locate({ setView: true, maxZoom: 15, timeout: 10000, enableHighAccuracy: true });
+        // The location marker is a screen-aligned div (leaflet-rotate doesn't
+        // spin marker icons with the map), so the heading arrow's own rotation
+        // must add the map bearing back in: heading + getBearing(). In nav mode
+        // bearing == -heading, so that sum is 0 and the arrow points straight up.
+        const userIcon = (e) => {
+            const bearingDeg = (map.getBearing && map.getBearing()) || 0;
+            const rot = Number.isFinite(e.heading) ? e.heading + bearingDeg : null;
+            const rotor = rot === null
+                ? '<div class="map-user-rotor"><div class="map-user-dot"></div></div>'
+                : `<div class="map-user-rotor" style="transform:rotate(${rot}deg)"><span class="map-user-arrow"></span><div class="map-user-dot"></div></div>`;
+            return L.divIcon({ className: 'map-user-marker', html: rotor, iconSize: [40, 40], iconAnchor: [20, 20] });
+        };
+
+        const updateLocationMarker = (e) => {
+            if (!accuracyCircle) {
+                accuracyCircle = L.circle(e.latlng, {
+                    radius: e.accuracy, color: '#1e88e5', fillColor: '#1e88e5',
+                    fillOpacity: 0.12, weight: 1, interactive: false,
+                }).addTo(map);
+            } else {
+                accuracyCircle.setLatLng(e.latlng).setRadius(e.accuracy);
+            }
+            if (!marker) {
+                marker = L.marker(e.latlng, {
+                    icon: userIcon(e), interactive: false, keyboard: false, zIndexOffset: 1000,
+                }).addTo(map);
+            } else {
+                marker.setLatLng(e.latlng).setIcon(userIcon(e));
+            }
+        };
+
+        const clearLocationMarker = () => {
+            if (marker) { map.removeLayer(marker); marker = null; }
+            if (accuracyCircle) { map.removeLayer(accuracyCircle); accuracyCircle = null; }
+        };
+
+        // exitNav is a hoisted declaration so stopTracking (below) can call it.
+        function exitNav() {
+            if (!navMode) return;
+            navMode = false;
+            navBtn.classList.add('is-off');
+            navBtn.classList.remove('is-active');
+            navBtn.setAttribute('aria-pressed', 'false');
+            if (map.setBearing) map.setBearing(0);
+            if (lastFix) updateLocationMarker(lastFix);
+            MAP.log('Navigation mode off');
+        }
+
+        const applyNav = (e) => {
+            map.setView(e.latlng, map.getZoom(), { animate: false });
+            if (map.setBearing && Number.isFinite(e.heading)) map.setBearing(-e.heading);
+            updateLocationMarker(e);
+        };
+
+        const ping = (setView) => map.locate({ setView, maxZoom: 16, enableHighAccuracy: true, timeout: 9000 });
+
+        const startTracking = () => {
+            if (trackingTimer) return;
+            locateBtn.classList.add('is-loading', 'is-active');
+            locateBtn.setAttribute('aria-pressed', 'true');
+            ping(true);                                       // first fix recenters
+            trackingTimer = setInterval(() => ping(false), 750);   // then poll every 3s
+            MAP.log('Location tracking on (3s poll)');
+        };
+
+        const stopTracking = () => {
+            if (trackingTimer) { clearInterval(trackingTimer); trackingTimer = null; }
+            if (map.stopLocate) map.stopLocate();
+            locateBtn.classList.remove('is-loading', 'is-active');
+            locateBtn.setAttribute('aria-pressed', 'false');
+            exitNav();
+            clearLocationMarker();
+            MAP.log('Location tracking off');
+        };
+
+        const enterNav = () => {
+            navMode = true;
+            navBtn.classList.remove('is-off');
+            navBtn.classList.add('is-active');
+            navBtn.setAttribute('aria-pressed', 'true');
+            startTracking();                  // nav mode needs the live position
+            if (lastFix) applyNav(lastFix);
+            MAP.log('Navigation mode on');
+        };
+
+        locateBtn.addEventListener('click', () => {
+            if (trackingTimer) stopTracking();
+            else startTracking();
         });
 
+        navBtn.addEventListener('click', () => {
+            if (navMode) exitNav();
+            else enterNav();
+        });
+
+        // North-up reset: a compass that surfaces only while the map is
+        // rotated, its needle pointing to true north. Tapping it leaves
+        // follow-mode (so it won't immediately re-rotate) and snaps to north.
+        const compassBtn = div.querySelector('.map-compass-btn');
+        const compassNeedle = div.querySelector('.map-compass-needle');
+        const syncCompass = () => {
+            const bearing = map.getBearing ? map.getBearing() : 0;
+            const offNorth = Math.abs(((bearing + 180) % 360) - 180);   // 0 at north
+            compassBtn.hidden = offNorth < 0.5;
+            compassNeedle.style.transform = `rotate(${bearing}deg)`;
+        };
+        compassBtn.addEventListener('click', () => {
+            exitNav();
+            if (map.setBearing) map.setBearing(0);
+            syncCompass();
+        });
+        map.on('rotate', syncCompass);
+        syncCompass();
+
         map.on('locationfound', (e) => {
-            btn.classList.remove('is-loading');
-            if (marker) map.removeLayer(marker);
-            if (accuracyCircle) map.removeLayer(accuracyCircle);
-
-            accuracyCircle = L.circle(e.latlng, {
-                radius: e.accuracy,
-                color: '#1e88e5',
-                fillColor: '#1e88e5',
-                fillOpacity: 0.12,
-                weight: 1,
-            }).addTo(map);
-
-            marker = L.circleMarker(e.latlng, {
-                radius: 7,
-                color: '#fff',
-                fillColor: '#1e88e5',
-                fillOpacity: 1,
-                weight: 2,
-            }).addTo(map);
-
-            MAP.log('Location found', { latlng: e.latlng, accuracy: e.accuracy });
+            locateBtn.classList.remove('is-loading');
+            lastFix = e;
+            if (navMode) applyNav(e);
+            else updateLocationMarker(e);
+            MAP.log('Location found', { accuracy: e.accuracy, heading: e.heading });
         });
 
         map.on('locationerror', (e) => {
-            btn.classList.remove('is-loading');
+            locateBtn.classList.remove('is-loading');
             MAP.error(e);
         });
 

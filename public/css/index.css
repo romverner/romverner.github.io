@@ -139,6 +139,23 @@ body {
     opacity: 0.55;
 }
 
+/* Active state for the location-tracking and navigation toggles. */
+.map-locate-btn.is-active {
+    color: var(--accent);
+}
+
+/* The north-reset compass only shows while the map is rotated; the explicit
+   rule is needed because .map-locate-btn's display:block outranks [hidden]. */
+.map-compass-btn[hidden] {
+    display: none;
+}
+
+.map-compass-needle {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform 0.15s ease;
+}
+
 .map-locate-btn 
 .map-locate-btn:hover {
     background: var(--panel-bg-solid);
@@ -1056,6 +1073,47 @@ body {
 }
 
 /* --- Map markers --- */
+
+/* Live user-location marker: a blue dot with an optional heading arrow. The
+   rotor is rotated inline by userIcon() (heading + map bearing); the dot sits
+   at its center so rotation only swings the arrow around it. */
+.map-user-marker {
+    background: transparent;
+    border: 0;
+}
+
+.map-user-rotor {
+    position: relative;
+    width: 40px;
+    height: 40px;
+}
+
+.map-user-dot {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    border-radius: 50%;
+    background: #1e88e5;
+    border: 2px solid #fff;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+    box-sizing: border-box;
+}
+
+.map-user-arrow {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 0;
+    height: 0;
+    margin: -20px 0 0 -6px;
+    border-left: 6px solid transparent;
+    border-right: 6px solid transparent;
+    border-bottom: 10px solid #1e88e5;
+    filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.45));
+}
 
 .map-route-pin {
     display: flex;

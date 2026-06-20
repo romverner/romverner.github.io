@@ -1412,8 +1412,12 @@ ROUTE.attach = (map) => {
         // The locate control broadcasts on the map; once we know where
         // the user is, offer it as a waypoint.
         map.on('locationfound', (e) => {
+            // Keep myLocation fresh for waypoint use, but only re-render the
+            // panel when it first appears — the 3s tracking poll fires this
+            // repeatedly and the "use my location" option needn't redraw.
+            const firstFix = !state.myLocation;
             state.myLocation = e.latlng;
-            renderWaypoints();
+            if (firstFix) renderWaypoints();
         });
 
         // Indego bike share stations: shown when zoomed in, with live
