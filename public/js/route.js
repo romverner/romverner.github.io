@@ -32,6 +32,11 @@ ROUTE.CONFIG = {
     // the worst corridors without sacrificing the lane network.
     hinFactor: 1.8,
     hinMinPenalty: 1.4,
+    // Riding against a one-way is allowed but surcharged this many times its
+    // length, so the router respects one-ways unless a short wrong-way hop
+    // clearly beats a long legal detour (the "walk a block" escape hatch).
+    // Higher = more car-like (stricter detours); lower = ignores one-ways.
+    contraflowFactor: 4,
     routeCasingStyle: { color: '#263238', weight: 9, opacity: 0.85 },
     routeStyle: { weight: 5, opacity: 0.95 },
     indegoInfoUrl: 'https://gbfs.bcycle.com/bcycle_indego/station_information.json',
@@ -129,13 +134,13 @@ ROUTE.decodeGraph = (raw) => {
     const category = new Uint8Array(raw.edges.length);
     const penalty = new Float64Array(raw.edges.length);
     raw.edges.forEach((e, i) => {
-        const [a, b, , type, cls] = e;
-        // Every edge is traversable both ways: a cyclist can turn around or
-        // walk a block against a one-way in an instant, so the directed
-        // one-way data (e[2]) is intentionally ignored. This avoids the
-        // car-like detours/loops that one-ways force on out-and-back legs.
-        adjacency[a].push({ edge: i, fwd: true });
-        adjacency[b].push({ edge: i, fwd: false });
+        const [a, b, dir, type, cls] = e;
+        // Both directions stay traversable, but the wrong way down a one-way
+        // (e[2]: 1 = a→b only, 2 = b→a only; 0 = two-way) is flagged contra
+        // and surcharged in findRoute. So one-ways are respected without the
+        // hard-block detours/loops they'd otherwise force on out-and-back legs.
+        adjacency[a].push({ edge: i, fwd: true, contra: dir === 2 });
+        adjacency[b].push({ edge: i, fwd: false, contra: dir === 1 });
 
         const catIdx = typeCategory[type];
         const cat = ROUTE.CONFIG.laneCategories[catIdx];
@@ -235,7 +240,7 @@ ROUTE.findRoute = (graph, start, goal, safety) => {
         if (closed[u]) continue;
         closed[u] = 1;
 
-        for (const { edge, fwd } of graph.adjacency[u]) {
+        for (const { edge, fwd, contra } of graph.adjacency[u]) {
             const v = fwd ? graph.edges[edge][1] : graph.edges[edge][0];
             if (closed[v]) continue;
             const len = graph.edges[edge][5];
@@ -244,7 +249,9 @@ ROUTE.findRoute = (graph, start, goal, safety) => {
                 && graph.penalty[edge] > ROUTE.CONFIG.hinMinPenalty)
                 ? 1 + safety * (ROUTE.CONFIG.hinFactor - 1)
                 : 1;
-            const cost = len * (1 + safety * (graph.penalty[edge] - 1)) * hinMult;
+            // Flat surcharge for going the wrong way down a one-way.
+            const contraMult = contra ? ROUTE.CONFIG.contraflowFactor : 1;
+            const cost = len * (1 + safety * (graph.penalty[edge] - 1)) * hinMult * contraMult;
             const alt = dist[u] + cost;
             if (alt < dist[v]) {
                 dist[v] = alt;
