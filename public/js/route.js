@@ -403,6 +403,11 @@ ROUTE.computeHinFlags = (graph, hinGrid) => {
     return hin;
 };
 
+// Trail categories are off-street, so the High Injury Network (a
+// street-crash dataset) never applies to them — even where a trail runs
+// parallel to a high-injury road like the SRT alongside MLK Drive.
+ROUTE.HIN_EXEMPT_KEYS = new Set(['trail', 'trailSoft']);
+
 ROUTE.routeStats = (graph, route, hinGrid) => {
     const byCategory = ROUTE.CONFIG.laneCategories.map(() => 0);
     const hinByCategory = ROUTE.CONFIG.laneCategories.map(() => 0);
@@ -410,7 +415,10 @@ ROUTE.routeStats = (graph, route, hinGrid) => {
         const cat = graph.category[edge];
         const len = graph.edges[edge][5];
         byCategory[cat] += len;
-        if (hinGrid && ROUTE.edgeOnHin(graph, edge, fwd, hinGrid)) hinByCategory[cat] += len;
+        if (hinGrid && !ROUTE.HIN_EXEMPT_KEYS.has(ROUTE.CONFIG.laneCategories[cat].key)
+            && ROUTE.edgeOnHin(graph, edge, fwd, hinGrid)) {
+            hinByCategory[cat] += len;
+        }
     }
     return ROUTE.CONFIG.laneCategories
         .map((cat, i) => ({ ...cat, meters: byCategory[i], hinMeters: hinByCategory[i] }))
