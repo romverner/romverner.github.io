@@ -108,9 +108,14 @@ MAP.create = (elementId, { center = [0, 0], zoom = 2 } = {}) => {
     try {
         // rotate:true enables the leaflet-rotate plugin's bearing support
         // (used by navigation mode to keep the user's heading pointing up).
-        // We supply our own nav button, so the plugin's default control is off.
-        const map = L.map(elementId, { rotate: true, rotateControl: false })
-            .setView(center, zoom);
+        // touchRotate adds the two-finger twist gesture on mobile; shiftKey
+        // rotation (shift+drag on desktop) is on by default. We supply our own
+        // nav button, so the plugin's default rotate control is off.
+        const map = L.map(elementId, {
+            rotate: true,
+            rotateControl: false,
+            touchRotate: true,
+        }).setView(center, zoom);
         map.zoomControl.setPosition('topright');
 
         const settings = MAP.loadSettings();
@@ -743,6 +748,17 @@ MAP.addLocateControl = (map) => {
         let trackingTimer = null;
         let navMode = false;
         let lastFix = null;
+        let prevLatLng = null;
+
+        // Forward azimuth (0=N, clockwise) between two points, used to infer a
+        // heading from movement when the GPS doesn't supply one.
+        const bearingBetween = (a, b) => {
+            const rad = Math.PI / 180;
+            const y = Math.sin((b.lng - a.lng) * rad) * Math.cos(b.lat * rad);
+            const x = Math.cos(a.lat * rad) * Math.sin(b.lat * rad)
+                - Math.sin(a.lat * rad) * Math.cos(b.lat * rad) * Math.cos((b.lng - a.lng) * rad);
+            return (Math.atan2(y, x) / rad + 360) % 360;
+        };
 
         // The location marker is a screen-aligned div (leaflet-rotate doesn't
         // spin marker icons with the map), so the heading arrow's own rotation
@@ -860,6 +876,14 @@ MAP.addLocateControl = (map) => {
 
         map.on('locationfound', (e) => {
             locateBtn.classList.remove('is-loading');
+            // Desktops and stationary phones report heading: null, so infer it
+            // from movement between fixes (only once we've actually moved, to
+            // avoid spinning on GPS jitter while standing still).
+            if (!Number.isFinite(e.heading) && prevLatLng
+                && map.distance(prevLatLng, e.latlng) > 5) {
+                e.heading = bearingBetween(prevLatLng, e.latlng);
+            }
+            prevLatLng = e.latlng;
             lastFix = e;
             if (navMode) applyNav(e);
             else updateLocationMarker(e);
