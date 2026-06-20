@@ -1588,6 +1588,12 @@ ROUTE.attach = (map) => {
         const septaMarkers = [];
         let septaVisible = true;
         let syncSepta = null;
+
+        // Hide the transit pins (hundreds of DOM markers) during map rotation;
+        // they're restored when the gesture settles. See MAP.setupRotationPerf.
+        if (typeof MAP !== 'undefined' && MAP.registerRotationLayers) {
+            MAP.registerRotationLayers(() => [indegoLayer, septaLayer]);
+        }
         const setSeptaVisible = (visible) => {
             septaVisible = visible;
             if (syncSepta) syncSepta();

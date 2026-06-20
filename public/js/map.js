@@ -803,14 +803,14 @@ MAP.addLocateControl = (map) => {
             navBtn.classList.add('is-off');
             navBtn.classList.remove('is-active');
             navBtn.setAttribute('aria-pressed', 'false');
-            if (map.setBearing) map.setBearing(0);
+            MAP.rotateTo(map, 0);
             if (lastFix) updateLocationMarker(lastFix);
             MAP.log('Navigation mode off');
         }
 
         const applyNav = (e) => {
             map.setView(e.latlng, map.getZoom(), { animate: false });
-            if (map.setBearing && Number.isFinite(e.heading)) map.setBearing(-e.heading);
+            if (Number.isFinite(e.heading)) MAP.rotateTo(map, -e.heading);
             updateLocationMarker(e);
         };
 
@@ -868,7 +868,7 @@ MAP.addLocateControl = (map) => {
         };
         compassBtn.addEventListener('click', () => {
             exitNav();
-            if (map.setBearing) map.setBearing(0);
+            MAP.rotateTo(map, 0);
             syncCompass();
         });
         map.on('rotate', syncCompass);
@@ -902,6 +902,62 @@ MAP.addLocateControl = (map) => {
     control.addTo(map);
 };
 
+// --- Rotation performance ---
+// While the map is interactively rotating (touch twist / shift-drag), every
+// vector renderer re-projects all its paths and every DOM marker repositions
+// on each frame — brutal on weak devices when lanes, trails, HIN and hundreds
+// of transit pins are live. So we detach the heavy overlays for the duration
+// of the gesture and restore them once it settles. The user's route and their
+// own markers (waypoints, location) are never registered here, so they stay.
+MAP._rotationLayerProviders = [];
+MAP.registerRotationLayers = (fn) => MAP._rotationLayerProviders.push(fn);
+
+// Rotate the map without triggering the overlay hide — for programmatic
+// nav-mode bearing changes, which are a single frame every few seconds and
+// shouldn't blink the overlays the way a continuous gesture does.
+MAP.rotateTo = (map, deg) => {
+    if (!map.setBearing) return;
+    MAP._suppressRotateHide = true;
+    map.setBearing(deg);          // fires 'rotate' synchronously
+    MAP._suppressRotateHide = false;
+};
+
+MAP.setupRotationPerf = (map) => {
+    // Evaluated lazily on rotate-start, so layers built after this runs (or
+    // toggled off) are handled correctly — only those currently on the map
+    // are detached, and only those get restored.
+    MAP.registerRotationLayers(() => [
+        MAP.streetsLayer, MAP.trailsLayer, MAP.hinLayer, ...MAP.countyLaneLayers,
+    ]);
+
+    let rotating = false;
+    let endTimer = null;
+    let hidden = [];
+
+    const start = () => {
+        hidden = [];
+        for (const provide of MAP._rotationLayerProviders) {
+            for (const layer of (provide() || [])) {
+                if (layer && map.hasLayer(layer)) {
+                    map.removeLayer(layer);
+                    hidden.push(layer);
+                }
+            }
+        }
+    };
+    const end = () => {
+        for (const layer of hidden) layer.addTo(map);
+        hidden = [];
+    };
+
+    map.on('rotate', () => {
+        if (MAP._suppressRotateHide) return;       // programmatic single-frame turn
+        if (!rotating) { rotating = true; start(); }
+        clearTimeout(endTimer);
+        endTimer = setTimeout(() => { rotating = false; end(); }, 150);
+    });
+};
+
 MAP.init = () => {
     const map = MAP.create("map", { center: [39.9526, -75.1652], zoom: 12 });
     if (map) {
@@ -913,6 +969,7 @@ MAP.init = () => {
         MAP.addMetaBanner(map);
         MAP.addLegend(map);
         MAP.addLocateControl(map);
+        MAP.setupRotationPerf(map);
         // Defer one tick so route.js (loaded after map.js) has defined
         // ROUTE.loadedCounties() before we decide add-affordance vs restore.
         setTimeout(() => MAP.addCounties(map), 0);
