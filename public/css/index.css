@@ -1255,3 +1255,36 @@ body {
         overflow-y: auto;
     }
 }
+
+/* Near-square screens — e.g. the iKKO Mind One's ~1:1 (1240x1080) display —
+   are vertically short, so the top-right control toolbar (zoom + layer
+   toggles + settings) runs long enough that its bottom button collides with
+   the route bottom-sheet. The aspect band (3/4 .. 4/3) excludes normal tall
+   phones (~0.46) and landscape (~2.1); max-width keeps it to small handsets,
+   so this only ever tightens the existing mobile bottom-sheet layout. */
+@media (max-width: 640px) and (min-aspect-ratio: 3/4) and (max-aspect-ratio: 4/3) {
+    /* Compact the toolbar so the whole column is shorter and the settings
+       button clears the sheet. */
+    .map-locate-btn,
+    .leaflet-control-zoom a,
+    .leaflet-touch .leaflet-control-zoom a {
+        width: 34px;
+        height: 34px;
+        line-height: 34px;
+    }
+
+    .map-locate-btn svg {
+        width: 17px;
+        height: 17px;
+    }
+
+    /* Shorter collapsed peek, with the corner controls/attribution lifted to
+       match, frees the vertical room the squeeze took away. */
+    .map-route.is-sheet-down {
+        transform: translateY(calc(100% - 48px));
+    }
+
+    .leaflet-bottom {
+        margin-bottom: 52px;
+    }
+}
