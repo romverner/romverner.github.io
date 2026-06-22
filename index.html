@@ -13,8 +13,11 @@
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Map rotation plugin (patches L.Map; must load after Leaflet core). -->
-    <script src="https://cdn.jsdelivr.net/npm/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script>
+    <!-- Map rotation plugin (patches L.Map; must load after Leaflet core).
+         Temporarily disabled: it restructures the pane tree and breaks the
+         canvas-rendered HIN overlay's custom pane. Re-enable by un-commenting
+         this tag and flipping MAP.ROTATE_ENABLED in map.js. -->
+    <!-- <script src="https://cdn.jsdelivr.net/npm/leaflet-rotate@0.2.8/dist/leaflet-rotate.js"></script> -->
     <script src="public/js/index.js"></script>
     <script src="public/js/map.js"></script>
     <script src="public/js/route.js"></script>

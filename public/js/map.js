@@ -63,6 +63,12 @@ MAP.CONFIG = {
     bikeLaneFallbackColor: '#888',
 };
 
+// Feature flags (temporary). Flip both back on — and un-comment the
+// leaflet-rotate <script> in index.html — to restore map rotation and the
+// live location/navigation controls.
+MAP.ROTATE_ENABLED = false;     // map bearing / nav heading-up (needs leaflet-rotate)
+MAP.LOCATION_ENABLED = false;   // "track my location" + navigation-mode buttons
+
 MAP.SETTINGS_KEY = 'romv-settings';
 
 MAP.loadSettings = () => {
@@ -111,11 +117,11 @@ MAP.create = (elementId, { center = [0, 0], zoom = 2 } = {}) => {
         // touchRotate adds the two-finger twist gesture on mobile; shiftKey
         // rotation (shift+drag on desktop) is on by default. We supply our own
         // nav button, so the plugin's default rotate control is off.
-        const map = L.map(elementId, {
-            rotate: true,
-            rotateControl: false,
-            touchRotate: true,
-        }).setView(center, zoom);
+        // Gated behind MAP.ROTATE_ENABLED while rotation is disabled.
+        const rotateOpts = MAP.ROTATE_ENABLED
+            ? { rotate: true, rotateControl: false, touchRotate: true }
+            : {};
+        const map = L.map(elementId, rotateOpts).setView(center, zoom);
         map.zoomControl.setPosition('topright');
 
         const settings = MAP.loadSettings();
@@ -894,6 +900,14 @@ MAP.addLocateControl = (map) => {
             locateBtn.classList.remove('is-loading');
             MAP.error(e);
         });
+
+        // Temporarily remove the live-location controls (track-my-location,
+        // navigation mode, and the rotation compass). Wiring above already ran
+        // harmlessly; detaching the buttons leaves the layer toggles + settings
+        // intact. Flip MAP.LOCATION_ENABLED to restore them.
+        if (!MAP.LOCATION_ENABLED) {
+            for (const btn of [locateBtn, navBtn, compassBtn]) btn?.remove();
+        }
 
         L.DomEvent.disableClickPropagation(div);
         return div;
