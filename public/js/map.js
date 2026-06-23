@@ -33,14 +33,6 @@ MAP.CONFIG = {
     streetsUrl: 'public/json/lanes.geojson',
     trailsUrl: 'public/json/trails.geojson',
     cityLimitsUrl: 'public/json/city_limits.geojson',
-    counties: Object.fromEntries(
-        ['delaware', 'montgomery', 'bucks', 'camden', 'burlington'].map((k) => [k, {
-            label: { delaware: 'Delaware County', montgomery: 'Montgomery County',
-                     bucks: 'Bucks County', camden: 'Camden County',
-                     burlington: 'Burlington County' }[k],
-            boundaryUrl: `public/json/county-${k}.geojson`,
-            lanesUrl: `public/json/lanes-${k}.geojson`,
-        }])),
     metaUrl: 'public/json/meta.json',
     trailColors: {
         'Paved Trail':   '#00897b',
@@ -62,12 +54,6 @@ MAP.CONFIG = {
     },
     bikeLaneFallbackColor: '#888',
 };
-
-// Feature flags (temporary). Flip both back on — and un-comment the
-// leaflet-rotate <script> in index.html — to restore map rotation and the
-// live location/navigation controls.
-MAP.ROTATE_ENABLED = false;     // map bearing / nav heading-up (needs leaflet-rotate)
-MAP.LOCATION_ENABLED = false;   // "track my location" + navigation-mode buttons
 
 MAP.SETTINGS_KEY = 'romv-settings';
 
@@ -112,16 +98,7 @@ MAP.applyTransparency = (reduce) => {
 
 MAP.create = (elementId, { center = [0, 0], zoom = 2 } = {}) => {
     try {
-        // rotate:true enables the leaflet-rotate plugin's bearing support
-        // (used by navigation mode to keep the user's heading pointing up).
-        // touchRotate adds the two-finger twist gesture on mobile; shiftKey
-        // rotation (shift+drag on desktop) is on by default. We supply our own
-        // nav button, so the plugin's default rotate control is off.
-        // Gated behind MAP.ROTATE_ENABLED while rotation is disabled.
-        const rotateOpts = MAP.ROTATE_ENABLED
-            ? { rotate: true, rotateControl: false, touchRotate: true }
-            : {};
-        const map = L.map(elementId, rotateOpts).setView(center, zoom);
+        const map = L.map(elementId).setView(center, zoom);
         map.zoomControl.setPosition('topright');
 
         const settings = MAP.loadSettings();
@@ -259,7 +236,6 @@ MAP.labelTrails = async (map) => {
 // bike-lane/route layers above it.
 MAP._regionRings = [];   // array of [lat,lng] outer rings to un-dim
 MAP._maskLayer = null;
-MAP.countyLaneLayers = [];
 
 const ringsFromGeoJSON = (data) => {
     const rings = [];
@@ -308,101 +284,6 @@ MAP.drawCityLimits = async (map) => {
     }
 };
 
-// Draw a county's bike facilities + un-dim it (display only — the routing
-// graph is loaded separately via ROUTE.loadCounty).
-MAP.drawCountyDisplay = async (map, key) => {
-    const cfg = MAP.CONFIG.counties[key];
-    const [boundary, lanes] = await Promise.all([
-        fetch(cfg.boundaryUrl).then((r) => r.json()),
-        fetch(cfg.lanesUrl).then((r) => r.json()),
-    ]);
-    const layer = L.geoJSON(lanes, {
-        renderer: L.canvas(),
-        style: (f) => ({
-            color: f.properties.COLOR,
-            weight: 2,
-            opacity: 0.85,
-            dashArray: f.properties.DASH || null,
-        }),
-    }).addTo(map);
-    MAP.countyLaneLayers.push(layer);
-    MAP.addRegion(map, boundary, '6 6');
-    return boundary;
-};
-
-// Clickable affordance for a county that hasn't been added yet.
-MAP.addCounties = async (map) => {
-    // Temporarily disabled — keep the focus on Philadelphia. (Re-enable via
-    // ROUTE.COUNTIES_ENABLED; all county build artifacts are preserved.)
-    if (typeof ROUTE === 'undefined' || !ROUTE.COUNTIES_ENABLED) return;
-    const loaded = new Set((ROUTE.loadedCounties) ? ROUTE.loadedCounties() : []);
-    for (const [key, cfg] of Object.entries(MAP.CONFIG.counties)) {
-        if (loaded.has(key)) {
-            MAP.drawCountyDisplay(map, key).catch(MAP.error);
-            continue;
-        }
-        try {
-            const boundary = await (await fetch(cfg.boundaryUrl)).json();
-            MAP.addCountyAffordance(map, key, cfg, boundary);
-        } catch (err) {
-            MAP.error(err);
-        }
-    }
-};
-
-MAP.COUNTY_REST = { color: '#78909c', weight: 1.5, dashArray: '5 5',
-                    fillColor: '#78909c', fillOpacity: 0.06 };
-MAP.COUNTY_HOVER = { color: '#b0bec5', weight: 2, dashArray: null,
-                     fillColor: '#90a4ae', fillOpacity: 0.22 };
-
-MAP.addCountyAffordance = (map, key, cfg, boundary) => {
-    const group = L.layerGroup().addTo(map);
-    const region = L.geoJSON(boundary, { style: MAP.COUNTY_REST }).addTo(group);
-    region.eachLayer((l) => l.getElement && l.getElement()?.classList.add('map-county-add'));
-
-    const center = region.getBounds().getCenter();
-    const chip = L.marker(center, {
-        icon: L.divIcon({
-            className: '',
-            html: `<button type="button" class="map-county-chip">+ Add ${cfg.label}</button>`,
-            iconSize: [null, null],
-        }),
-    }).addTo(group);
-
-    // Hover anywhere on the county (region or its chip) highlights it.
-    let hovering = false;
-    const setHover = (on) => {
-        hovering = on;
-        region.setStyle(on ? MAP.COUNTY_HOVER : MAP.COUNTY_REST);
-        const btn = chip.getElement()?.querySelector('.map-county-chip');
-        if (btn && !btn.disabled) btn.classList.toggle('is-hover', on);
-    };
-    region.on('mouseover', () => setHover(true));
-    region.on('mouseout', () => setHover(false));
-    chip.on('mouseover', () => setHover(true));
-    chip.on('mouseout', () => setHover(false));
-
-    const activate = async (ev) => {
-        if (ev) L.DomEvent.stop(ev);
-        const btn = chip.getElement()?.querySelector('.map-county-chip');
-        if (btn) { btn.textContent = `Loading ${cfg.label}…`; btn.disabled = true; }
-        try {
-            await Promise.all([
-                MAP.drawCountyDisplay(map, key),
-                (typeof ROUTE !== 'undefined' && ROUTE.loadCounty)
-                    ? ROUTE.loadCounty(key) : Promise.resolve(),
-            ]);
-            map.removeLayer(group);
-            MAP.log('County added', { key });
-        } catch (err) {
-            MAP.error(err);
-            if (btn) { btn.textContent = `+ Add ${cfg.label}`; btn.disabled = false; }
-        }
-    };
-    region.on('click', activate);
-    chip.on('click', activate);
-};
-
 MAP.addMetaBanner = async (map) => {
     try {
         const res = await fetch(MAP.CONFIG.metaUrl);
@@ -420,7 +301,7 @@ MAP.addMetaBanner = async (map) => {
             year: 'numeric', month: 'long', day: 'numeric',
         });
 
-        const div = L.DomUtil.create('div', 'map-meta', map.getContainer());
+        const div = L.DomUtil.create('div', 'panel map-meta', map.getContainer());
         div.innerHTML = `
             <button type="button" class="map-meta-close" aria-label="Dismiss notice" title="Dismiss">×</button>
             <div class="map-meta-updated">Routes last updated ${date}</div>
@@ -455,7 +336,7 @@ MAP.addLegend = (map) => {
     const legend = L.control({ position: 'bottomright' });
 
     legend.onAdd = () => {
-        const div = L.DomUtil.create('div', 'map-legend is-collapsed');
+        const div = L.DomUtil.create('div', 'panel map-legend is-collapsed');
         const legendRow = (type, color, dashed) => `
             <div class="map-legend-row">
                 <span class="map-legend-swatch" style="background:${dashed
@@ -531,7 +412,7 @@ MAP.openSettings = (map) => {
             class="${settings.basemap === key ? 'is-active' : ''}">${bm.label}</button>
     `).join('');
     overlay.innerHTML = `
-        <div class="map-route-help-card map-settings-card">
+        <div class="panel map-route-help-card map-settings-card">
             <div class="map-route-help-head">
                 <h3>Settings</h3>
                 <button type="button" class="map-route-help-close" aria-label="Close settings">×</button>
@@ -558,7 +439,7 @@ MAP.openSettings = (map) => {
                     </span>
                 </label>
             </div>
-            <button type="button" class="map-settings-share">Share with friends</button>
+            <button type="button" class="btn-primary map-settings-share">Share with friends</button>
         </div>
     `;
     L.DomEvent.disableClickPropagation(overlay);
@@ -637,29 +518,6 @@ MAP.addLocateControl = (map) => {
     control.onAdd = () => {
         const div = L.DomUtil.create('div', 'leaflet-bar map-locate');
         div.innerHTML = `
-            <button type="button" class="map-locate-btn map-compass-btn" aria-label="Reset map to north" title="Reset north" hidden>
-                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-                    <g class="map-compass-needle">
-                        <path d="M12 4 9.5 12.5h5z" fill="#e53935"/>
-                        <path d="M12 20 9.5 11.5h5z" fill="#9fb1ba"/>
-                    </g>
-                </svg>
-            </button>
-            <button type="button" class="map-locate-btn map-locate-me" aria-pressed="false" aria-label="Track my location" title="Track my location">
-                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                    <circle cx="12" cy="12" r="3" fill="currentColor" stroke="none"/>
-                    <circle cx="12" cy="12" r="7"/>
-                    <line x1="12" y1="2" x2="12" y2="5"/>
-                    <line x1="12" y1="19" x2="12" y2="22"/>
-                    <line x1="2" y1="12" x2="5" y2="12"/>
-                    <line x1="19" y1="12" x2="22" y2="12"/>
-                </svg>
-            </button>
-            <button type="button" class="map-locate-btn map-nav-toggle is-off" aria-pressed="false" aria-label="Navigation mode (follow and rotate to heading)" title="Navigation mode (center & rotate to heading)">
-                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="currentColor">
-                    <path d="M12 2 5 21l7-4 7 4z"/>
-                </svg>
-            </button>
             <button type="button" class="map-locate-btn map-toggle-lanes" aria-pressed="true" aria-label="Toggle bike lanes" title="Toggle bike lanes">
                 <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
                     <path d="M8 20 12 4" stroke-dasharray="3.5 3"/>
@@ -701,7 +559,7 @@ MAP.addLocateControl = (map) => {
         lanesBtn.addEventListener('click', () => {
             if (!MAP.streetsLayer) return;
             const visible = map.hasLayer(MAP.streetsLayer);
-            for (const layer of [MAP.streetsLayer, MAP.trailsLayer, ...MAP.countyLaneLayers]) {
+            for (const layer of [MAP.streetsLayer, MAP.trailsLayer]) {
                 if (!layer) continue;
                 if (visible) map.removeLayer(layer);
                 else layer.addTo(map);
@@ -747,229 +605,11 @@ MAP.addLocateControl = (map) => {
             MAP.openSettings(map);
         });
 
-        const locateBtn = div.querySelector('.map-locate-me');
-        const navBtn = div.querySelector('.map-nav-toggle');
-        let marker = null;
-        let accuracyCircle = null;
-        let trackingTimer = null;
-        let navMode = false;
-        let lastFix = null;
-        let prevLatLng = null;
-
-        // Forward azimuth (0=N, clockwise) between two points, used to infer a
-        // heading from movement when the GPS doesn't supply one.
-        const bearingBetween = (a, b) => {
-            const rad = Math.PI / 180;
-            const y = Math.sin((b.lng - a.lng) * rad) * Math.cos(b.lat * rad);
-            const x = Math.cos(a.lat * rad) * Math.sin(b.lat * rad)
-                - Math.sin(a.lat * rad) * Math.cos(b.lat * rad) * Math.cos((b.lng - a.lng) * rad);
-            return (Math.atan2(y, x) / rad + 360) % 360;
-        };
-
-        // The location marker is a screen-aligned div (leaflet-rotate doesn't
-        // spin marker icons with the map), so the heading arrow's own rotation
-        // must add the map bearing back in: heading + getBearing(). In nav mode
-        // bearing == -heading, so that sum is 0 and the arrow points straight up.
-        const userIcon = (e) => {
-            const bearingDeg = (map.getBearing && map.getBearing()) || 0;
-            const rot = Number.isFinite(e.heading) ? e.heading + bearingDeg : null;
-            const rotor = rot === null
-                ? '<div class="map-user-rotor"><div class="map-user-dot"></div></div>'
-                : `<div class="map-user-rotor" style="transform:rotate(${rot}deg)"><span class="map-user-arrow"></span><div class="map-user-dot"></div></div>`;
-            return L.divIcon({ className: 'map-user-marker', html: rotor, iconSize: [40, 40], iconAnchor: [20, 20] });
-        };
-
-        const updateLocationMarker = (e) => {
-            if (!accuracyCircle) {
-                accuracyCircle = L.circle(e.latlng, {
-                    radius: e.accuracy, color: '#1e88e5', fillColor: '#1e88e5',
-                    fillOpacity: 0.12, weight: 1, interactive: false,
-                }).addTo(map);
-            } else {
-                accuracyCircle.setLatLng(e.latlng).setRadius(e.accuracy);
-            }
-            if (!marker) {
-                marker = L.marker(e.latlng, {
-                    icon: userIcon(e), interactive: false, keyboard: false, zIndexOffset: 1000,
-                }).addTo(map);
-            } else {
-                marker.setLatLng(e.latlng).setIcon(userIcon(e));
-            }
-        };
-
-        const clearLocationMarker = () => {
-            if (marker) { map.removeLayer(marker); marker = null; }
-            if (accuracyCircle) { map.removeLayer(accuracyCircle); accuracyCircle = null; }
-        };
-
-        // exitNav is a hoisted declaration so stopTracking (below) can call it.
-        function exitNav() {
-            if (!navMode) return;
-            navMode = false;
-            navBtn.classList.add('is-off');
-            navBtn.classList.remove('is-active');
-            navBtn.setAttribute('aria-pressed', 'false');
-            MAP.rotateTo(map, 0);
-            if (lastFix) updateLocationMarker(lastFix);
-            MAP.log('Navigation mode off');
-        }
-
-        const applyNav = (e) => {
-            map.setView(e.latlng, map.getZoom(), { animate: false });
-            if (Number.isFinite(e.heading)) MAP.rotateTo(map, -e.heading);
-            updateLocationMarker(e);
-        };
-
-        const ping = (setView) => map.locate({ setView, maxZoom: 16, enableHighAccuracy: true, timeout: 9000 });
-
-        const startTracking = () => {
-            if (trackingTimer) return;
-            locateBtn.classList.add('is-loading', 'is-active');
-            locateBtn.setAttribute('aria-pressed', 'true');
-            ping(true);                                       // first fix recenters
-            trackingTimer = setInterval(() => ping(false), 750);   // then poll every 3s
-            MAP.log('Location tracking on (3s poll)');
-        };
-
-        const stopTracking = () => {
-            if (trackingTimer) { clearInterval(trackingTimer); trackingTimer = null; }
-            if (map.stopLocate) map.stopLocate();
-            locateBtn.classList.remove('is-loading', 'is-active');
-            locateBtn.setAttribute('aria-pressed', 'false');
-            exitNav();
-            clearLocationMarker();
-            MAP.log('Location tracking off');
-        };
-
-        const enterNav = () => {
-            navMode = true;
-            navBtn.classList.remove('is-off');
-            navBtn.classList.add('is-active');
-            navBtn.setAttribute('aria-pressed', 'true');
-            startTracking();                  // nav mode needs the live position
-            if (lastFix) applyNav(lastFix);
-            MAP.log('Navigation mode on');
-        };
-
-        locateBtn.addEventListener('click', () => {
-            if (trackingTimer) stopTracking();
-            else startTracking();
-        });
-
-        navBtn.addEventListener('click', () => {
-            if (navMode) exitNav();
-            else enterNav();
-        });
-
-        // North-up reset: a compass that surfaces only while the map is
-        // rotated, its needle pointing to true north. Tapping it leaves
-        // follow-mode (so it won't immediately re-rotate) and snaps to north.
-        const compassBtn = div.querySelector('.map-compass-btn');
-        const compassNeedle = div.querySelector('.map-compass-needle');
-        const syncCompass = () => {
-            const bearing = map.getBearing ? map.getBearing() : 0;
-            const offNorth = Math.abs(((bearing + 180) % 360) - 180);   // 0 at north
-            compassBtn.hidden = offNorth < 0.5;
-            compassNeedle.style.transform = `rotate(${bearing}deg)`;
-        };
-        compassBtn.addEventListener('click', () => {
-            exitNav();
-            MAP.rotateTo(map, 0);
-            syncCompass();
-        });
-        map.on('rotate', syncCompass);
-        syncCompass();
-
-        map.on('locationfound', (e) => {
-            locateBtn.classList.remove('is-loading');
-            // Desktops and stationary phones report heading: null, so infer it
-            // from movement between fixes (only once we've actually moved, to
-            // avoid spinning on GPS jitter while standing still).
-            if (!Number.isFinite(e.heading) && prevLatLng
-                && map.distance(prevLatLng, e.latlng) > 5) {
-                e.heading = bearingBetween(prevLatLng, e.latlng);
-            }
-            prevLatLng = e.latlng;
-            lastFix = e;
-            if (navMode) applyNav(e);
-            else updateLocationMarker(e);
-            MAP.log('Location found', { accuracy: e.accuracy, heading: e.heading });
-        });
-
-        map.on('locationerror', (e) => {
-            locateBtn.classList.remove('is-loading');
-            MAP.error(e);
-        });
-
-        // Temporarily remove the live-location controls (track-my-location,
-        // navigation mode, and the rotation compass). Wiring above already ran
-        // harmlessly; detaching the buttons leaves the layer toggles + settings
-        // intact. Flip MAP.LOCATION_ENABLED to restore them.
-        if (!MAP.LOCATION_ENABLED) {
-            for (const btn of [locateBtn, navBtn, compassBtn]) btn?.remove();
-        }
-
         L.DomEvent.disableClickPropagation(div);
         return div;
     };
 
     control.addTo(map);
-};
-
-// --- Rotation performance ---
-// While the map is interactively rotating (touch twist / shift-drag), every
-// vector renderer re-projects all its paths and every DOM marker repositions
-// on each frame — brutal on weak devices when lanes, trails, HIN and hundreds
-// of transit pins are live. So we detach the heavy overlays for the duration
-// of the gesture and restore them once it settles. The user's route and their
-// own markers (waypoints, location) are never registered here, so they stay.
-MAP._rotationLayerProviders = [];
-MAP.registerRotationLayers = (fn) => MAP._rotationLayerProviders.push(fn);
-
-// Rotate the map without triggering the overlay hide — for programmatic
-// nav-mode bearing changes, which are a single frame every few seconds and
-// shouldn't blink the overlays the way a continuous gesture does.
-MAP.rotateTo = (map, deg) => {
-    if (!map.setBearing) return;
-    MAP._suppressRotateHide = true;
-    map.setBearing(deg);          // fires 'rotate' synchronously
-    MAP._suppressRotateHide = false;
-};
-
-MAP.setupRotationPerf = (map) => {
-    // Evaluated lazily on rotate-start, so layers built after this runs (or
-    // toggled off) are handled correctly — only those currently on the map
-    // are detached, and only those get restored.
-    MAP.registerRotationLayers(() => [
-        MAP.streetsLayer, MAP.trailsLayer, MAP.hinLayer, ...MAP.countyLaneLayers,
-    ]);
-
-    let rotating = false;
-    let endTimer = null;
-    let hidden = [];
-
-    const start = () => {
-        hidden = [];
-        for (const provide of MAP._rotationLayerProviders) {
-            for (const layer of (provide() || [])) {
-                if (layer && map.hasLayer(layer)) {
-                    map.removeLayer(layer);
-                    hidden.push(layer);
-                }
-            }
-        }
-    };
-    const end = () => {
-        for (const layer of hidden) layer.addTo(map);
-        hidden = [];
-    };
-
-    map.on('rotate', () => {
-        if (MAP._suppressRotateHide) return;       // programmatic single-frame turn
-        if (!rotating) { rotating = true; start(); }
-        clearTimeout(endTimer);
-        endTimer = setTimeout(() => { rotating = false; end(); }, 150);
-    });
 };
 
 MAP.init = () => {
@@ -983,10 +623,6 @@ MAP.init = () => {
         MAP.addMetaBanner(map);
         MAP.addLegend(map);
         MAP.addLocateControl(map);
-        MAP.setupRotationPerf(map);
-        // Defer one tick so route.js (loaded after map.js) has defined
-        // ROUTE.loadedCounties() before we decide add-affordance vs restore.
-        setTimeout(() => MAP.addCounties(map), 0);
     }
 };
 

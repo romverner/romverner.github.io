@@ -51,20 +51,10 @@ ROUTE.CONFIG = {
 // --- Saved waypoints (this device only) ---
 
 ROUTE.WAYPOINTS_KEY = 'romv-saved-waypoints';
-ROUTE.LEGACY_STARTS_KEY = 'romv-saved-starts';
 
 ROUTE.loadWaypoints = () => {
     try {
-        let raw = localStorage.getItem(ROUTE.WAYPOINTS_KEY);
-        if (raw === null) {
-            // Migrate from the earlier "saved starts" feature.
-            raw = localStorage.getItem(ROUTE.LEGACY_STARTS_KEY);
-            if (raw !== null) {
-                localStorage.setItem(ROUTE.WAYPOINTS_KEY, raw);
-                localStorage.removeItem(ROUTE.LEGACY_STARTS_KEY);
-            }
-        }
-        const list = JSON.parse(raw || '[]');
+        const list = JSON.parse(localStorage.getItem(ROUTE.WAYPOINTS_KEY) || '[]');
         if (!Array.isArray(list)) return [];
         return list.filter((s) => s && typeof s.name === 'string'
             && Number.isFinite(s.lat) && Number.isFinite(s.lng));
@@ -84,34 +74,6 @@ ROUTE.saveWaypoints = (list) => {
 ROUTE.escapeHtml = (s) => s.replace(/[&<>"']/g, (c) => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
 }[c]));
-
-// Neighbor-county loading is temporarily disabled while cross-border
-// stitching is refined; flip to true to re-enable (build artifacts and
-// merge logic are kept intact). Keeps the focus on Philadelphia.
-ROUTE.COUNTIES_ENABLED = false;
-
-// Loaded neighbor counties persist on the device so a regular cross-county
-// rider doesn't re-add them every visit.
-ROUTE.COUNTIES_KEY = 'romv-loaded-counties';
-
-ROUTE.loadedCounties = () => {
-    try {
-        const list = JSON.parse(localStorage.getItem(ROUTE.COUNTIES_KEY) || '[]');
-        return Array.isArray(list) ? list.filter((k) => typeof k === 'string') : [];
-    } catch (_) {
-        return [];
-    }
-};
-
-ROUTE.persistCounty = (key) => {
-    try {
-        const set = new Set(ROUTE.loadedCounties());
-        set.add(key);
-        localStorage.setItem(ROUTE.COUNTIES_KEY, JSON.stringify([...set]));
-    } catch (err) {
-        ROUTE.error(err);
-    }
-};
 
 // --- Graph + routing (no Leaflet dependency) ---
 
@@ -421,8 +383,7 @@ ROUTE.HIN_EXEMPT_KEYS = new Set(['trail', 'trailSoft']);
 ROUTE.HIN_RATINGS = [
     { max: 35,  key: 'low',   label: 'Low' },
     { max: 70,  key: 'mod',   label: 'Moderate' },
-    { max: 100,  key: 'high',  label: 'High' },
-    // { max: 120, key: 'vhigh', label: 'Very high' },
+    { max: 100, key: 'high',  label: 'High' },
 ];
 
 ROUTE.hinRating = (pct) =>
@@ -490,9 +451,6 @@ ROUTE.elevProfile = (graph, steps) => {
 ROUTE.attach = (map) => {
     const state = {
         graph: null,
-        rawGraph: null,
-        counties: {},
-        loading: false,
         active: false,
         start: null,
         end: null,
@@ -551,7 +509,7 @@ ROUTE.attach = (map) => {
     const control = L.control({ position: 'topleft' });
 
     control.onAdd = () => {
-        const div = L.DomUtil.create('div', 'map-route is-collapsed');
+        const div = L.DomUtil.create('div', 'panel map-route is-collapsed');
         div.innerHTML = `
             <div class="map-route-grabber" aria-hidden="true"></div>
             <div class="map-route-header">
@@ -575,7 +533,7 @@ ROUTE.attach = (map) => {
                 </label>
                 <div class="map-route-summary"></div>
                 <div class="map-route-breakdown"></div>
-                <button type="button" class="map-route-export" hidden>Export Route (.gpx)</button>
+                <button type="button" class="btn-primary map-route-export" hidden>Export Route (.gpx)</button>
                 <div class="map-route-actions">
                     <button type="button" class="map-route-reverse" title="Swap start and destination">⇅ Reverse</button>
                     <button type="button" class="map-route-clear">Clear route</button>
@@ -607,73 +565,17 @@ ROUTE.attach = (map) => {
             iconAnchor: [13, 31],
         });
 
-        // Merge Philadelphia (kept as raw) with any loaded neighbor-county
-        // graphs into one decoded graph. Each county's `border` array maps
-        // its local node indices onto the Philadelphia node they fuse to,
-        // so cross-border edges connect at shared intersections.
-        const rebuildGraph = () => {
-            const phl = state.rawGraph;
-            const counties = Object.values(state.counties);
-            if (!counties.length) {
-                state.graph = ROUTE.decodeGraph(phl);
-                return;
-            }
-            const nodes = phl.nodes.slice();
-            const edges = phl.edges.slice();
-            let next = nodes.length / 2;
-            for (const c of counties) {
-                const border = new Map(c.border);
-                const count = c.nodes.length / 2;
-                const remap = new Int32Array(count);
-                for (let d = 0; d < count; d++) {
-                    if (border.has(d)) {
-                        remap[d] = border.get(d);
-                    } else {
-                        remap[d] = next++;
-                        nodes.push(c.nodes[d * 2], c.nodes[d * 2 + 1]);
-                    }
-                }
-                for (const e of c.edges) {
-                    const ne = e.slice();
-                    ne[0] = remap[e[0]];
-                    ne[1] = remap[e[1]];
-                    edges.push(ne);
-                }
-                // Bikeable river bridges: a two-way path edge from the
-                // county approach to the Philadelphia approach (type 12 =
-                // trail, so the router treats it as a comfortable crossing).
-                for (const [countyNode, phlNode, lengthM] of (c.bridges || [])) {
-                    edges.push([remap[countyNode], phlNode, 0, 12, 0, lengthM, []]);
-                }
-            }
-            state.graph = ROUTE.decodeGraph({
-                coordScale: phl.coordScale, types: phl.types, nodes, edges,
-            });
-        };
-
-        const fetchCounty = async (key) => {
-            const res = await fetch(`public/json/graph-${key}.json`);
-            state.counties[key] = await res.json();
-        };
-
         const ensureGraph = () => {
             if (!state.graphPromise) {
                 state.graphPromise = (async () => {
                     setHint('Loading street network…');
                     try {
-                        state.rawGraph = await (await fetch(ROUTE.CONFIG.graphUrl)).json();
-                        if (ROUTE.COUNTIES_ENABLED) {
-                            for (const key of ROUTE.loadedCounties()) {
-                                try { await fetchCounty(key); }
-                                catch (e) { ROUTE.error(e); }
-                            }
-                        }
-                        rebuildGraph();
+                        const raw = await (await fetch(ROUTE.CONFIG.graphUrl)).json();
+                        state.graph = ROUTE.decodeGraph(raw);
                         applyHinFlags();
                         applyElev();
                         ROUTE.log('Graph loaded', {
                             nodes: state.graph.count, edges: state.graph.edges.length,
-                            counties: Object.keys(state.counties),
                         });
                         setHint('Click the map to set your start point.');
                     } catch (err) {
@@ -684,19 +586,6 @@ ROUTE.attach = (map) => {
                 })();
             }
             return state.graphPromise;
-        };
-
-        // Public: load a neighboring county and merge it in. The map UI
-        // calls this when the user taps a county to add it.
-        ROUTE.loadCounty = async (key) => {
-            if (!ROUTE.COUNTIES_ENABLED) return false;
-            await ensureGraph();
-            if (!state.rawGraph || state.counties[key]) return !!state.counties[key];
-            await fetchCounty(key);
-            rebuildGraph();
-            ROUTE.persistCounty(key);
-            if (state.start && state.end) drawRoute();
-            return true;
         };
 
         const drawRoute = () => {
@@ -941,9 +830,6 @@ ROUTE.attach = (map) => {
 
         const renderWaypoints = () => {
             const wpts = ROUTE.loadWaypoints();
-            const meChip = state.myLocation
-                ? '<button type="button" class="map-route-wpt-me" title="Use my current location">📍 My location</button>'
-                : '';
             const chips = wpts.map((s, i) => `
                 <span class="map-route-wpt-chip">
                     <button type="button" class="map-route-wpt-use" data-i="${i}"
@@ -956,7 +842,7 @@ ROUTE.attach = (map) => {
                 state.start ? '<button type="button" class="map-route-wpt-add" data-pin="start">☆ Save A</button>' : '',
                 state.end ? '<button type="button" class="map-route-wpt-add" data-pin="end">☆ Save B</button>' : '',
             ].join('');
-            if (!meChip && !chips && !saveChips) {
+            if (!chips && !saveChips) {
                 waypointsDiv.innerHTML = '';
                 return;
             }
@@ -967,7 +853,7 @@ ROUTE.attach = (map) => {
                     <span class="map-legend-chevron" aria-hidden="true">▾</span>
                 </button>
                 <div class="map-route-waypoints-body">
-                    <div class="map-route-waypoints-row">${meChip}${chips}${saveChips}</div>
+                    <div class="map-route-waypoints-row">${chips}${saveChips}</div>
                 </div>
             `;
             waypointsDiv.classList.toggle('is-collapsed', !state.waypointsOpen);
@@ -978,7 +864,7 @@ ROUTE.attach = (map) => {
             const latlng = pin.getLatLng();
             const overlay = L.DomUtil.create('div', 'map-route-help-overlay', map.getContainer());
             overlay.innerHTML = `
-                <div class="map-route-help-card map-route-save-card">
+                <div class="panel map-route-help-card map-route-save-card">
                     <div class="map-route-help-head">
                         <h3>Save waypoint</h3>
                         <button type="button" class="map-route-help-close" aria-label="Close">×</button>
@@ -987,7 +873,7 @@ ROUTE.attach = (map) => {
                     can use it as a start or destination with one tap.</p>
                     <input type="text" class="map-route-save-name" maxlength="40"
                         placeholder="e.g. Home, Work" aria-label="Name for this waypoint">
-                    <button type="button" class="map-route-save-confirm" disabled>Save</button>
+                    <button type="button" class="btn-primary map-route-save-confirm" disabled>Save</button>
                 </div>
             `;
             L.DomEvent.disableClickPropagation(overlay);
@@ -1051,10 +937,6 @@ ROUTE.attach = (map) => {
             // click target defeats Leaflet's control-click detection and
             // the event would land on the map as a pin placement.
             L.DomEvent.stopPropagation(e);
-            if (e.target.closest('.map-route-wpt-me')) {
-                if (state.myLocation) useWaypointLatLng(L.latLng(state.myLocation));
-                return;
-            }
             if (e.target.closest('.map-route-waypoints-toggle')) {
                 state.waypointsOpen = !state.waypointsOpen;
                 waypointsDiv.classList.toggle('is-collapsed', !state.waypointsOpen);
@@ -1167,7 +1049,7 @@ ROUTE.attach = (map) => {
         const openHinInfo = () => {
             const overlay = L.DomUtil.create('div', 'map-route-help-overlay', map.getContainer());
             overlay.innerHTML = `
-                <div class="map-route-help-card map-route-hin-card">
+                <div class="panel map-route-help-card map-route-hin-card">
                     <div class="map-route-help-head">
                         <h3>Higher-crash corridors</h3>
                         <button type="button" class="map-route-help-close" aria-label="Close">×</button>
@@ -1204,7 +1086,7 @@ ROUTE.attach = (map) => {
             }
             helpModal = L.DomUtil.create('div', 'map-route-help-overlay', map.getContainer());
             helpModal.innerHTML = `
-                <div class="map-route-help-card">
+                <div class="panel map-route-help-card">
                     <div class="map-route-help-head">
                         <h3>Using the route planner</h3>
                         <button type="button" class="map-route-help-close" aria-label="Close help">×</button>
@@ -1409,17 +1291,6 @@ ROUTE.attach = (map) => {
             if (state.active) placePin(e.latlng);
         });
 
-        // The locate control broadcasts on the map; once we know where
-        // the user is, offer it as a waypoint.
-        map.on('locationfound', (e) => {
-            // Keep myLocation fresh for waypoint use, but only re-render the
-            // panel when it first appears — the 3s tracking poll fires this
-            // repeatedly and the "use my location" option needn't redraw.
-            const firstFix = !state.myLocation;
-            state.myLocation = e.latlng;
-            if (firstFix) renderWaypoints();
-        });
-
         // Indego bike share stations: shown when zoomed in, with live
         // availability and shortcuts to route from/to a station.
         // Shared by Indego and SEPTA station popups: route from/to a
@@ -1589,11 +1460,6 @@ ROUTE.attach = (map) => {
         let septaVisible = true;
         let syncSepta = null;
 
-        // Hide the transit pins (hundreds of DOM markers) during map rotation;
-        // they're restored when the gesture settles. See MAP.setupRotationPerf.
-        if (typeof MAP !== 'undefined' && MAP.registerRotationLayers) {
-            MAP.registerRotationLayers(() => [indegoLayer, septaLayer]);
-        }
         const setSeptaVisible = (visible) => {
             septaVisible = visible;
             if (syncSepta) syncSepta();

@@ -75,6 +75,34 @@ body {
     cursor: crosshair;
 }
 
+/* --- Utilities --- */
+
+/* Frosted-glass surface shared by the floating panels. The no-blur setting
+   redefines --panel-bg/--panel-blur globally, so every .panel adapts. */
+.panel {
+    background: var(--panel-bg);
+    backdrop-filter: var(--panel-blur);
+    -webkit-backdrop-filter: var(--panel-blur);
+    border: 1px solid var(--panel-border);
+    border-radius: var(--panel-radius);
+    box-shadow: var(--panel-shadow);
+    font: var(--font);
+    color: var(--text);
+}
+
+/* Primary call-to-action button (accent gradient). Each user adds its own
+   width/margins and hover/disabled states. */
+.btn-primary {
+    background: linear-gradient(180deg, var(--accent), var(--accent-strong));
+    border: 0;
+    border-radius: 8px;
+    padding: 7px 0;
+    font: inherit;
+    font-weight: 600;
+    color: #fff;
+    cursor: pointer;
+}
+
 /* --- Leaflet chrome --- */
 
 .leaflet-bar {
@@ -139,24 +167,6 @@ body {
     opacity: 0.55;
 }
 
-/* Active state for the location-tracking and navigation toggles. */
-.map-locate-btn.is-active {
-    color: var(--accent);
-}
-
-/* The north-reset compass only shows while the map is rotated; the explicit
-   rule is needed because .map-locate-btn's display:block outranks [hidden]. */
-.map-compass-btn[hidden] {
-    display: none;
-}
-
-.map-compass-needle {
-    transform-box: fill-box;
-    transform-origin: center;
-    transition: transform 0.15s ease;
-}
-
-.map-locate-btn 
 .map-locate-btn:hover {
     background: var(--panel-bg-solid);
     color: #fff;
@@ -167,46 +177,32 @@ body {
     margin: auto;
 }
 
-.map-locate-btn.is-loading {
-    color: var(--accent);
-}
-
-.map-locate-btn.is-loading svg {
-    animation: map-locate-pulse 1s ease-in-out infinite;
-}
-
-@keyframes map-locate-pulse {
-    50% { opacity: 0.3; }
-}
-
 /* --- Legend --- */
 
 .map-legend {
-    background: var(--panel-bg);
-    backdrop-filter: var(--panel-blur);
-    -webkit-backdrop-filter: var(--panel-blur);
-    border: 1px solid var(--panel-border);
     padding: 10px 12px;
-    border-radius: var(--panel-radius);
-    box-shadow: var(--panel-shadow);
-    font: var(--font);
-    color: var(--text);
     max-width: 230px;
 }
 
-.map-legend-toggle {
+/* Collapsible section headers (legend, saved waypoints, lane breakdown). */
+.map-legend-toggle,
+.map-route-waypoints-toggle,
+.map-route-bar-toggle {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 12px;
     width: 100%;
+    margin: 0 0 8px;
+    padding: 0;
     background: none;
     border: 0;
-    padding: 0;
-    margin: 0 0 8px 0;
     font: inherit;
-    color: inherit;
     cursor: pointer;
+}
+
+.map-legend-toggle {
+    justify-content: space-between;
+    gap: 12px;
+    color: inherit;
     font-weight: 600;
     font-size: 13px;
     letter-spacing: 0.02em;
@@ -217,12 +213,15 @@ body {
     transition: transform 0.15s ease;
 }
 
-.map-legend.is-collapsed .map-legend-toggle {
-    margin-bottom: 0;
+/* Chevron points down when open, rotates to point right when collapsed. */
+.map-legend.is-collapsed .map-legend-chevron,
+.map-route-waypoints.is-collapsed .map-legend-chevron,
+.map-route-breakdown.is-collapsed .map-legend-chevron {
+    transform: rotate(-90deg);
 }
 
-.map-legend.is-collapsed .map-legend-chevron {
-    transform: rotate(-90deg);
+.map-legend.is-collapsed .map-legend-toggle {
+    margin-bottom: 0;
 }
 
 .map-legend.is-collapsed .map-legend-body {
@@ -348,14 +347,6 @@ body {
 /* --- Route planner --- */
 
 .map-route {
-    background: var(--panel-bg);
-    backdrop-filter: var(--panel-blur);
-    -webkit-backdrop-filter: var(--panel-blur);
-    border: 1px solid var(--panel-border);
-    border-radius: var(--panel-radius);
-    box-shadow: var(--panel-shadow);
-    font: var(--font);
-    color: var(--text);
     width: 240px;
 }
 
@@ -384,11 +375,10 @@ body {
     letter-spacing: 0.02em;
 }
 
-.map-route-help {
+/* Small circular "?" info buttons (planner header + crash-rating). */
+.map-route-help,
+.map-route-hin-info {
     flex: 0 0 auto;
-    width: 20px;
-    height: 20px;
-    margin-right: 10px;
     border-radius: 50%;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid var(--panel-border);
@@ -398,9 +388,16 @@ body {
     transition: color 0.15s ease, background 0.15s ease;
 }
 
-.map-route-help:hover {
+.map-route-help:hover,
+.map-route-hin-info:hover {
     background: var(--control-hover);
     color: var(--text);
+}
+
+.map-route-help {
+    width: 20px;
+    height: 20px;
+    margin-right: 10px;
 }
 
 .map-route.is-collapsed .map-route-help {
@@ -431,18 +428,9 @@ body {
 }
 
 .map-route-waypoints-toggle {
-    display: flex;
-    align-items: center;
     justify-content: space-between;
     gap: 12px;
-    width: 100%;
-    background: none;
-    border: 0;
-    padding: 0;
-    margin: 0 0 8px;
-    font: inherit;
     color: var(--text-muted);
-    cursor: pointer;
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.05em;
@@ -450,14 +438,6 @@ body {
 
 .map-route-waypoints-toggle:hover {
     color: var(--text);
-}
-
-.map-route-waypoints-toggle .map-legend-chevron {
-    transition: transform 0.15s ease;
-}
-
-.map-route-waypoints.is-collapsed .map-legend-chevron {
-    transform: rotate(-90deg);
 }
 
 .map-route-waypoints.is-collapsed .map-route-waypoints-toggle {
@@ -522,20 +502,6 @@ body {
     color: var(--text-muted);
 }
 
-.map-route-wpt-me {
-    background: rgba(33, 150, 243, 0.14);
-    border: 1px solid var(--accent);
-    border-radius: 999px;
-    padding: 4px 11px;
-    font: inherit;
-    color: var(--text);
-    cursor: pointer;
-}
-
-.map-route-wpt-me:hover {
-    background: rgba(33, 150, 243, 0.25);
-}
-
 .map-route-wpt-add:hover {
     color: var(--text);
     background: var(--control-hover);
@@ -571,14 +537,6 @@ body {
 
 .map-route-save-confirm {
     width: 100%;
-    background: linear-gradient(180deg, var(--accent), var(--accent-strong));
-    border: 0;
-    border-radius: 8px;
-    padding: 7px 0;
-    font: inherit;
-    font-weight: 600;
-    color: #fff;
-    cursor: pointer;
 }
 
 .map-route-save-confirm:disabled {
@@ -653,29 +611,12 @@ body {
 }
 
 .map-route-bar-toggle {
-    display: flex;
-    align-items: center;
     gap: 8px;
-    width: 100%;
-    background: none;
-    border: 0;
-    padding: 0;
-    margin: 0 0 8px;
-    font: inherit;
     color: var(--text-muted);
-    cursor: pointer;
 }
 
 .map-route-bar-toggle:hover {
     color: var(--text);
-}
-
-.map-route-bar-toggle .map-legend-chevron {
-    transition: transform 0.15s ease;
-}
-
-.map-route-breakdown.is-collapsed .map-legend-chevron {
-    transform: rotate(-90deg);
 }
 
 .map-route-breakdown.is-collapsed .map-route-breakdown-rows {
@@ -743,25 +684,11 @@ body {
 .map-route-hin-badge.is-low   { background: #43a047; }
 .map-route-hin-badge.is-mod   { background: #f9a825; color: #1a1a1a; }
 .map-route-hin-badge.is-high  { background: #fb8c00; }
-.map-route-hin-badge.is-vhigh { background: #e53935; }
 
 .map-route-hin-info {
-    margin-left: auto;
-    flex: 0 0 auto;
     width: 18px;
     height: 18px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid var(--panel-border);
-    color: var(--text-muted);
-    font: 600 11px/1 system-ui, -apple-system, sans-serif;
-    cursor: pointer;
-    transition: color 0.15s ease, background 0.15s ease;
-}
-
-.map-route-hin-info:hover {
-    color: var(--text);
-    background: var(--control-hover);
+    margin-left: auto;
 }
 
 .map-route-hin-card {
@@ -841,14 +768,6 @@ body {
 .map-route-export {
     width: 100%;
     margin-bottom: 8px;
-    background: linear-gradient(180deg, var(--accent), var(--accent-strong));
-    border: 0;
-    border-radius: 8px;
-    padding: 7px 0;
-    font: inherit;
-    font-weight: 600;
-    color: #fff;
-    cursor: pointer;
     box-shadow: 0 2px 8px rgba(33, 150, 243, 0.35);
     transition: filter 0.15s ease, transform 0.1s ease;
 }
@@ -897,14 +816,6 @@ body {
 
 .map-route-help-card {
     position: relative;
-    background: var(--panel-bg);
-    backdrop-filter: var(--panel-blur);
-    -webkit-backdrop-filter: var(--panel-blur);
-    border: 1px solid var(--panel-border);
-    border-radius: var(--panel-radius);
-    box-shadow: var(--panel-shadow);
-    font: var(--font);
-    color: var(--text);
     max-width: 460px;
     max-height: calc(100% - 40px);
     overflow-y: auto;
@@ -963,14 +874,6 @@ body {
 .map-route-help-item.is-tip {
     border-left: 3px solid var(--accent);
     background: rgba(33, 150, 243, 0.07);
-}
-
-.map-route-help-note {
-    margin: 12px 0 0;
-    color: var(--text-muted);
-    font-size: 11px;
-    border-top: 1px solid var(--panel-border);
-    padding-top: 10px;
 }
 
 .map-route-help-close {
@@ -1057,14 +960,6 @@ body {
 .map-settings-share {
     width: 100%;
     margin-top: 14px;
-    background: linear-gradient(180deg, var(--accent), var(--accent-strong));
-    border: 0;
-    border-radius: 8px;
-    padding: 7px 0;
-    font: inherit;
-    font-weight: 600;
-    color: #fff;
-    cursor: pointer;
     transition: filter 0.15s ease;
 }
 
@@ -1073,47 +968,6 @@ body {
 }
 
 /* --- Map markers --- */
-
-/* Live user-location marker: a blue dot with an optional heading arrow. The
-   rotor is rotated inline by userIcon() (heading + map bearing); the dot sits
-   at its center so rotation only swings the arrow around it. */
-.map-user-marker {
-    background: transparent;
-    border: 0;
-}
-
-.map-user-rotor {
-    position: relative;
-    width: 40px;
-    height: 40px;
-}
-
-.map-user-dot {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 16px;
-    height: 16px;
-    margin: -8px 0 0 -8px;
-    border-radius: 50%;
-    background: #1e88e5;
-    border: 2px solid #fff;
-    box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
-    box-sizing: border-box;
-}
-
-.map-user-arrow {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 0;
-    height: 0;
-    margin: -20px 0 0 -6px;
-    border-left: 6px solid transparent;
-    border-right: 6px solid transparent;
-    border-bottom: 10px solid #1e88e5;
-    filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.45));
-}
 
 .map-route-pin {
     display: flex;
@@ -1153,37 +1007,6 @@ body {
     cursor: grab;
 }
 
-/* "Add a county" affordance over a dimmed neighbor. */
-.map-county-add {
-    cursor: pointer;
-}
-
-.map-county-chip {
-    transform: translate(-50%, -50%);
-    white-space: nowrap;
-    background: var(--panel-bg);
-    backdrop-filter: var(--panel-blur);
-    -webkit-backdrop-filter: var(--panel-blur);
-    border: 1px solid var(--panel-border);
-    border-radius: 999px;
-    box-shadow: var(--panel-shadow);
-    color: var(--text);
-    font: 600 12px/1 system-ui, -apple-system, sans-serif;
-    padding: 8px 14px;
-    cursor: pointer;
-}
-
-.map-county-chip:hover,
-.map-county-chip.is-hover {
-    background: var(--panel-bg-solid);
-    border-color: var(--accent);
-}
-
-.map-county-chip:disabled {
-    opacity: 0.7;
-    cursor: default;
-}
-
 /* --- Meta banner --- */
 
 .map-meta {
@@ -1194,14 +1017,6 @@ body {
     z-index: 1000;
     pointer-events: none;
     text-align: center;
-    background: var(--panel-bg);
-    backdrop-filter: var(--panel-blur);
-    -webkit-backdrop-filter: var(--panel-blur);
-    border: 1px solid var(--panel-border);
-    border-radius: var(--panel-radius);
-    box-shadow: var(--panel-shadow);
-    font: var(--font);
-    color: var(--text);
     padding: 8px 16px;
     max-width: min(440px, calc(100vw - 200px));
 }
