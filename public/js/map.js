@@ -1,22 +1,46 @@
 const MAP = ROMV.createModule('MAP');
 
+// Esri World Imagery: keyless, free aerial tiles. {z}/{y}/{x} order, no {s}.
+const ESRI_IMG_URL = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const ESRI_ATTR = 'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community';
+
 MAP.CONFIG = {
     basemaps: {
         // CARTO Positron: muted out of the box — no per-frame CSS
         // desaturation filter needed (expensive on weak GPUs).
         carto: {
-            label: 'Muted',
+            label: 'Clean',
             url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
             subdomains: 'abcd',
             maxZoom: 20,
         },
         osm: {
-            label: 'Classic',
+            label: 'Original',
             url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
             subdomains: 'abc',
             maxZoom: 19,
+        },
+        // maxNativeZoom lets Leaflet overzoom (upscale) past the imagery's
+        // native limit so switching from a deeper basemap (carto reaches 20)
+        // never shows a blank grid.
+        satellite: {
+            label: 'Satellite',
+            url: ESRI_IMG_URL,
+            attribution: ESRI_ATTR,
+            maxZoom: 20,
+            maxNativeZoom: 19,
+        },
+        // Same imagery with a transparent Esri reference layer (street/place
+        // labels) drawn on top via the `overlay` field.
+        satelliteDetailed: {
+            label: 'Satellite detailed',
+            url: ESRI_IMG_URL,
+            attribution: ESRI_ATTR + ' &copy; Esri labels',
+            overlay: 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}',
+            maxZoom: 20,
+            maxNativeZoom: 19,
         },
     },
     laneDetailZoom: 13,
@@ -77,19 +101,30 @@ MAP.saveSettings = (settings) => {
 MAP.applyBasemap = (map, key) => {
     const bm = MAP.CONFIG.basemaps[key] || MAP.CONFIG.basemaps.carto;
     if (MAP.tileLayer) map.removeLayer(MAP.tileLayer);
+    if (MAP.tileOverlay) { map.removeLayer(MAP.tileOverlay); MAP.tileOverlay = null; }
     // Weak-device tile budget (opt-in via settings): hold tile requests until
     // the pan settles and skip mid-zoom refreshes, so dragging doesn't fire a
     // request storm or repaint the grid every animation frame. Off by default
     // because it trades snappy in-gesture tile loading for fewer redraws.
     const throttle = MAP.loadSettings().throttleTiles;
-    MAP.tileLayer = L.tileLayer(bm.url, {
+    const opts = {
         attribution: bm.attribution,
-        subdomains: bm.subdomains,
+        // Leaflet's default is 'abc'; passing undefined would override that and
+        // crash _getSubdomain. Esri URLs have no {s}, so the value is unused there.
+        subdomains: bm.subdomains || 'abc',
         maxZoom: bm.maxZoom,
+        maxNativeZoom: bm.maxNativeZoom,
         updateWhenIdle: throttle,
         updateWhenZooming: !throttle,
-    }).addTo(map);
-    MAP.log('Basemap applied', { basemap: key, throttleTiles: throttle });
+    };
+    MAP.tileLayer = L.tileLayer(bm.url, opts).addTo(map);
+    // Optional transparent label layer (e.g. satellite + street names). Shares
+    // the tilePane with the base, so it stays beneath the coverage mask and
+    // vector overlays; added second, so labels render above the imagery.
+    if (bm.overlay) {
+        MAP.tileOverlay = L.tileLayer(bm.overlay, opts).addTo(map);
+    }
+    MAP.log('Basemap applied', { basemap: key, throttleTiles: throttle, overlay: !!bm.overlay });
 };
 
 MAP.applyTransparency = (reduce) => {
@@ -407,19 +442,11 @@ MAP.openSettings = (map) => {
     }
     const settings = MAP.loadSettings();
     const overlay = L.DomUtil.create('div', 'map-route-help-overlay map-settings-overlay', map.getContainer());
-    const basemapButtons = Object.entries(MAP.CONFIG.basemaps).map(([key, bm]) => `
-        <button type="button" data-basemap="${key}"
-            class="${settings.basemap === key ? 'is-active' : ''}">${bm.label}</button>
-    `).join('');
     overlay.innerHTML = `
         <div class="panel map-route-help-card map-settings-card">
             <div class="map-route-help-head">
                 <h3>Settings</h3>
                 <button type="button" class="map-route-help-close" aria-label="Close settings">×</button>
-            </div>
-            <div class="map-settings-group">
-                <div class="map-settings-label">Map style</div>
-                <div class="map-settings-options">${basemapButtons}</div>
             </div>
             <div class="map-settings-group">
                 <label class="map-settings-check">
@@ -455,18 +482,6 @@ MAP.openSettings = (map) => {
     overlay.addEventListener('click', (e) => {
         if (e.target === overlay) close(e);
     });
-
-    for (const btn of overlay.querySelectorAll('button[data-basemap]')) {
-        btn.addEventListener('click', () => {
-            const next = MAP.loadSettings();
-            next.basemap = btn.dataset.basemap;
-            MAP.saveSettings(next);
-            MAP.applyBasemap(map, next.basemap);
-            for (const b of overlay.querySelectorAll('button[data-basemap]')) {
-                b.classList.toggle('is-active', b === btn);
-            }
-        });
-    }
 
     overlay.querySelector('.map-settings-blur').addEventListener('change', (e) => {
         const next = MAP.loadSettings();
@@ -512,6 +527,64 @@ MAP.openSettings = (map) => {
     });
 };
 
+// Basemap picker. Mirrors openSettings' overlay/toggle structure; each row
+// applies + persists its basemap immediately and the popup stays open so the
+// user can compare. New entries in MAP.CONFIG.basemaps appear automatically.
+MAP.openLayers = (map) => {
+    const existing = document.querySelector('.map-layers-overlay');
+    if (existing) {
+        existing.remove();
+        return;
+    }
+    const current = MAP.loadSettings().basemap;
+    const overlay = L.DomUtil.create('div', 'map-route-help-overlay map-layers-overlay', map.getContainer());
+    const rows = Object.entries(MAP.CONFIG.basemaps).map(([key, bm]) => `
+        <button type="button" class="map-layer-option ${key === current ? 'is-active' : ''}"
+            data-basemap="${key}" aria-pressed="${key === current}">
+            <span class="map-layer-swatch is-${key}"></span>
+            <span class="map-layer-name">${bm.label}</span>
+            <span class="map-layer-check" aria-hidden="true">✓</span>
+        </button>
+    `).join('');
+    overlay.innerHTML = `
+        <div class="panel map-route-help-card map-layers-card">
+            <div class="map-route-help-head">
+                <h3>Map layer</h3>
+                <button type="button" class="map-route-help-close" aria-label="Close layer picker">×</button>
+            </div>
+            <div class="map-layer-list">${rows}</div>
+        </div>
+    `;
+    L.DomEvent.disableClickPropagation(overlay);
+    L.DomEvent.disableScrollPropagation(overlay);
+
+    // Stop before removing: a detached click target defeats Leaflet's
+    // control-click detection and the click would land on the map.
+    const close = (e) => {
+        L.DomEvent.stopPropagation(e);
+        overlay.remove();
+    };
+    overlay.querySelector('.map-route-help-close').addEventListener('click', close);
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) close(e);
+    });
+
+    for (const btn of overlay.querySelectorAll('.map-layer-option')) {
+        btn.addEventListener('click', () => {
+            const next = MAP.loadSettings();
+            next.basemap = btn.dataset.basemap;
+            MAP.saveSettings(next);
+            MAP.applyBasemap(map, next.basemap);
+            for (const b of overlay.querySelectorAll('.map-layer-option')) {
+                const on = b === btn;
+                b.classList.toggle('is-active', on);
+                b.setAttribute('aria-pressed', String(on));
+            }
+            MAP.log('Basemap selected', { basemap: next.basemap });
+        });
+    }
+};
+
 MAP.addLocateControl = (map) => {
     const control = L.control({ position: 'topright' });
 
@@ -545,6 +618,13 @@ MAP.addLocateControl = (map) => {
                     <path d="M10.3 3.2 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.2a2 2 0 0 0-3.4 0Z"/>
                     <line x1="12" y1="9" x2="12" y2="13"/>
                     <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+            </button>
+            <button type="button" class="map-locate-btn map-open-layers" aria-label="Map layer" title="Map layer">
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2 2 7l10 5 10-5z"/>
+                    <path d="M2 12l10 5 10-5"/>
+                    <path d="M2 17l10 5 10-5"/>
                 </svg>
             </button>
             <button type="button" class="map-locate-btn map-open-settings" aria-label="Settings" title="Settings">
@@ -599,6 +679,10 @@ MAP.addLocateControl = (map) => {
             hinBtn.classList.toggle('is-off', !visible);
             hinBtn.setAttribute('aria-pressed', String(visible));
             MAP.log('HIN visibility', { visible });
+        });
+
+        div.querySelector('.map-open-layers').addEventListener('click', () => {
+            MAP.openLayers(map);
         });
 
         div.querySelector('.map-open-settings').addEventListener('click', () => {

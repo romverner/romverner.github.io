@@ -905,40 +905,6 @@ body {
     margin-bottom: 0;
 }
 
-.map-settings-label {
-    color: var(--text-muted);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 6px;
-}
-
-.map-settings-options {
-    display: flex;
-    gap: 8px;
-}
-
-.map-settings-options button {
-    flex: 1;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid var(--panel-border);
-    border-radius: 8px;
-    padding: 7px 0;
-    font: inherit;
-    color: var(--text);
-    cursor: pointer;
-    transition: background 0.15s ease;
-}
-
-.map-settings-options button:hover {
-    background: var(--control-hover);
-}
-
-.map-settings-options button.is-active {
-    border-color: var(--accent);
-    background: rgba(33, 150, 243, 0.14);
-}
-
 .map-settings-check {
     display: flex;
     align-items: flex-start;
@@ -965,6 +931,83 @@ body {
 
 .map-settings-share:hover {
     filter: brightness(1.1);
+}
+
+/* --- Map layers picker --- */
+
+.map-layers-card {
+    width: 300px;
+}
+
+.map-layer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.map-layer-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    font: inherit;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.map-layer-option:hover {
+    background: var(--control-hover);
+}
+
+.map-layer-option.is-active {
+    border-color: var(--accent);
+    background: rgba(33, 150, 243, 0.14);
+}
+
+.map-layer-swatch {
+    flex: 0 0 auto;
+    width: 44px;
+    height: 30px;
+    border-radius: 6px;
+    border: 1px solid var(--panel-border);
+    background-size: cover;
+    background-position: center;
+}
+
+/* CSS-only previews approximating each basemap (no tile fetch). */
+.map-layer-swatch.is-carto {
+    background: linear-gradient(135deg, #f5f6f7, #dfe3e6);
+}
+
+.map-layer-swatch.is-osm {
+    background: linear-gradient(135deg, #eee7d8, #d8cbb0);
+}
+
+.map-layer-swatch.is-satellite,
+.map-layer-swatch.is-satelliteDetailed {
+    background: linear-gradient(135deg, #3a5a3c 0%, #5d6b3a 45%, #7a6a4a 100%);
+}
+
+.map-layer-name {
+    flex: 1;
+    text-align: left;
+}
+
+.map-layer-check {
+    flex: 0 0 auto;
+    margin-left: auto;
+    color: var(--accent);
+    font-weight: 700;
+    visibility: hidden;
+}
+
+.map-layer-option.is-active .map-layer-check {
+    visibility: visible;
 }
 
 /* --- Map markers --- */
