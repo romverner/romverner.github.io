@@ -501,15 +501,17 @@ MAP.openSettings = (map) => {
 
     const shareBtn = overlay.querySelector('.map-settings-share');
     shareBtn.addEventListener('click', async () => {
-        const url = location.origin + location.pathname;
+        // Share the current route if one is planned, otherwise the bare site.
+        const routeUrl = typeof ROUTE !== 'undefined' && ROUTE.currentRouteUrl
+            ? ROUTE.currentRouteUrl() : null;
+        const url = routeUrl || location.origin + location.pathname;
+        const text = routeUrl
+            ? 'Check out this Philly bike route'
+            : 'Plan safer bike routes in Philadelphia';
         if (navigator.share) {
             try {
-                await navigator.share({
-                    title: document.title,
-                    text: 'Plan safer bike routes in Philadelphia',
-                    url,
-                });
-                MAP.log('Site shared');
+                await navigator.share({ title: document.title, text, url });
+                MAP.log('Shared', { route: !!routeUrl });
                 return;
             } catch (err) {
                 if (err.name === 'AbortError') return;
@@ -518,9 +520,9 @@ MAP.openSettings = (map) => {
         }
         try {
             await navigator.clipboard.writeText(url);
-            shareBtn.textContent = 'Link copied ✓';
+            shareBtn.textContent = routeUrl ? 'Route link copied ✓' : 'Link copied ✓';
             setTimeout(() => { shareBtn.textContent = 'Share with friends'; }, 1500);
-            MAP.log('Site link copied', { url });
+            MAP.log('Link copied', { url, route: !!routeUrl });
         } catch (err) {
             MAP.error(err);
         }

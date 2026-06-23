@@ -296,6 +296,29 @@ ROUTE.toGPX = (points, name) => {
     ].join('\n');
 };
 
+// --- Shareable route URLs ---
+// A route encodes to a compact hash: `r=<safety0-100>;<lat,lng>;...` where the
+// points run start, vias…, end. 5 decimals (~1m) keeps links short.
+ROUTE.encodeRoute = (points, safety) =>
+    `r=${Math.round(safety * 100)};`
+    + points.map(([lat, lng]) => `${lat.toFixed(5)},${lng.toFixed(5)}`).join(';');
+
+ROUTE.parseRoute = (hash) => {
+    const m = /(?:^|[#&])r=([^&]+)/.exec(hash || '');
+    if (!m) return null;
+    const tokens = m[1].split(';');
+    if (tokens.length < 3) return null;   // safety + at least start & end
+    const safety = Number(tokens[0]);
+    if (!Number.isFinite(safety)) return null;
+    const points = [];
+    for (let i = 1; i < tokens.length; i++) {
+        const [lat, lng] = tokens[i].split(',').map(Number);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        points.push([lat, lng]);
+    }
+    return { points, safety: Math.min(100, Math.max(0, safety)) / 100 };
+};
+
 // High Injury Network proximity index: the HIN corridors (street
 // geometry) densified to points in a spatial grid, so any route point can
 // be tested for "on a high-injury corridor" with a cheap local lookup.
@@ -627,6 +650,26 @@ ROUTE.attach = (map) => {
             return state.graphPromise;
         };
 
+        // Encode the current route to a URL hash (null unless both pins exist),
+        // keep the address bar in sync so a reload/copy preserves the route,
+        // and expose the link for the Share button.
+        const buildRouteHash = () => {
+            if (!state.start || !state.end) return null;
+            const points = [state.start.getLatLng(), ...state.vias.map((v) => v.getLatLng()), state.end.getLatLng()]
+                .map((ll) => [ll.lat, ll.lng]);
+            return ROUTE.encodeRoute(points, state.safety);
+        };
+        const updateUrl = () => {
+            try {
+                const hash = buildRouteHash();
+                history.replaceState(null, '', hash ? '#' + hash : location.pathname + location.search);
+            } catch (_) { /* replaceState can throw on file://; best effort */ }
+        };
+        ROUTE.currentRouteUrl = () => {
+            const hash = buildRouteHash();
+            return hash ? location.origin + location.pathname + '#' + hash : null;
+        };
+
         const drawRoute = () => {
             state.routeLayer.clearLayers();
             summary.innerHTML = '';
@@ -800,6 +843,7 @@ ROUTE.attach = (map) => {
             breakdown.querySelector('.map-route-hin-info')?.addEventListener('click', openHinInfo);
 
             setHint('Drag the route line to add a via point; double-click a via to remove it.');
+            updateUrl();
             refreshSheet();
 
             // First complete route of this planning session: tuck the
@@ -1114,6 +1158,8 @@ ROUTE.attach = (map) => {
             breakdown.innerHTML = '';
             exportBtn.hidden = true;
             state.indegoAutoHidden = false;
+            playBtn.hidden = true;
+            updateUrl();
             renderWaypoints();
             refreshSheet();
             if (state.active) setHint('Click the map to set your start point.');
@@ -1795,6 +1841,25 @@ ROUTE.attach = (map) => {
         addSeptaStations();
 
         renderWaypoints();
+
+        // A shared link (#r=…): open the planner, load the graph, then drop the
+        // pins and vias and draw. drawRoute fits the whole route in view.
+        const restoreRoute = async ({ points, safety }) => {
+            setActive(true);
+            await ensureGraph();
+            if (!state.graph || state.start) return;
+            state.safety = safety;
+            slider.value = Math.round(safety * 100);
+            placePin(L.latLng(points[0][0], points[0][1]));
+            placePin(L.latLng(points[points.length - 1][0], points[points.length - 1][1]));
+            for (let i = 1; i < points.length - 1; i++) {
+                state.vias.push(createVia(L.latLng(points[i][0], points[i][1])));
+            }
+            if (state.vias.length) drawRoute();
+            ROUTE.log('Route restored from URL', { points: points.length, safety });
+        };
+        const sharedRoute = ROUTE.parseRoute(location.hash);
+        if (sharedRoute) restoreRoute(sharedRoute);
 
         // On phones, open the sheet right away — a docked-but-inert peek
         // reads as broken when a drag does nothing.
