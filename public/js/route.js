@@ -406,6 +406,26 @@ ROUTE.routeStats = (graph, route, hinGrid) => {
         .filter((c) => c.meters > 0);
 };
 
+// Contiguous runs along the route in travel order, each uniform in lane
+// category and HIN status. Unlike routeStats (which aggregates by category),
+// this preserves spatial order, so a position in the lane bar maps to the
+// same fraction of distance along the route — the cursor lines up with the
+// section being previewed. HIN logic mirrors routeStats exactly.
+ROUTE.routeRuns = (graph, steps, hinGrid) => {
+    const runs = [];
+    for (const { edge, fwd } of steps) {
+        const catIdx = graph.category[edge];
+        const cat = ROUTE.CONFIG.laneCategories[catIdx];
+        const len = graph.edges[edge][5];
+        const hin = !!hinGrid && !ROUTE.HIN_EXEMPT_KEYS.has(cat.key)
+            && ROUTE.edgeOnHin(graph, edge, fwd, hinGrid);
+        const last = runs[runs.length - 1];
+        if (last && last.catIdx === catIdx && last.hin === hin) last.meters += len;
+        else runs.push({ catIdx, hin, meters: len });
+    }
+    return runs;
+};
+
 // --- Elevation (per-node ground elevation, indexed to graph nodes) ---
 
 ROUTE.ELEV_URL = 'public/json/elevations.json';
@@ -444,6 +464,23 @@ ROUTE.elevProfile = (graph, steps) => {
     return ROUTE.routeNodeSeq(graph, steps)
         .map((p) => ({ d: p.dist, z: graph.elev[p.node] * ROUTE.M_TO_FT }))
         .filter((p) => Number.isFinite(p.z));
+};
+
+// Build the elevation sparkline <svg> from a profile. Shared by the route
+// breakdown and the Play preview track bar (which renders it taller).
+ROUTE.elevSvg = (profile, W = 100, H = 28) => {
+    const maxD = profile[profile.length - 1].d || 1;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (const p of profile) { minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
+    const range = Math.max(maxZ - minZ, 1);
+    const px = (d) => (d / maxD) * W;
+    const py = (z) => H - 2 - ((z - minZ) / range) * (H - 4);
+    const line = 'M' + profile.map((p) => `${px(p.d).toFixed(1)},${py(p.z).toFixed(1)}`).join(' L');
+    return `<svg class="map-route-elev" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+        <path class="map-route-elev-area" d="${line} L${W},${H} L0,${H} Z"/>
+        <path class="map-route-elev-line" d="${line}"/>
+    </svg>`;
 };
 
 // --- Map UI ---
@@ -533,6 +570,7 @@ ROUTE.attach = (map) => {
                 </label>
                 <div class="map-route-summary"></div>
                 <div class="map-route-breakdown"></div>
+                <button type="button" class="btn-primary map-route-play" hidden>▶ Play preview</button>
                 <button type="button" class="btn-primary map-route-export" hidden>Export Route (.gpx)</button>
                 <div class="map-route-actions">
                     <button type="button" class="map-route-reverse" title="Swap start and destination">⇅ Reverse</button>
@@ -550,6 +588,7 @@ ROUTE.attach = (map) => {
         const slider = div.querySelector('input[type=range]');
         const summary = div.querySelector('.map-route-summary');
         const breakdown = div.querySelector('.map-route-breakdown');
+        const playBtn = div.querySelector('.map-route-play');
         const exportBtn = div.querySelector('.map-route-export');
         const reverseBtn = div.querySelector('.map-route-reverse');
         const clearBtn = div.querySelector('.map-route-clear');
@@ -595,6 +634,8 @@ ROUTE.attach = (map) => {
             state.lastPath = null;
             state.lastMiles = 0;
             state.legPaths = null;
+            state.playData = null;
+            playBtn.hidden = true;
             exportBtn.hidden = true;
             if (!state.graph || !state.start || !state.end) return;
 
@@ -655,13 +696,16 @@ ROUTE.attach = (map) => {
 
             const stats = ROUTE.routeStats(state.graph, route, state.hinGrid);
             const hinMeters = stats.reduce((s, c) => s + c.hinMeters, 0);
-            const bar = stats.map((c) =>
-                `<span style="flex:${c.meters};background:${c.color}"></span>`).join('');
-            // A thin red bar under the lane bar, aligned by the same flex
-            // weights: each segment's red span marks the share of that lane
-            // type that runs on a high-injury corridor.
+            // Spatial lane bar: runs in travel order so the bar (and the play
+            // cursor over it) lines up with the actual sections of the route.
+            // The by-category distribution lives in the breakdown rows below.
+            const runs = ROUTE.routeRuns(state.graph, route.steps, state.hinGrid);
+            const bar = runs.map((r) =>
+                `<span style="flex:${r.meters};background:${ROUTE.CONFIG.laneCategories[r.catIdx].color}"></span>`).join('');
+            // A thin red bar under the lane bar, aligned spatially: each run on
+            // a high-injury corridor is marked along its full length.
             const hinbar = hinMeters > 0
-                ? stats.map((c) => `<span style="flex:${c.meters}"><i style="width:${(c.hinMeters / c.meters) * 100}%"></i></span>`).join('')
+                ? runs.map((r) => `<span style="flex:${r.meters}">${r.hin ? '<i style="width:100%"></i>' : ''}</span>`).join('')
                 : '';
             const rows = stats.map((c) => `
                 <div class="map-route-breakdown-row">
@@ -684,27 +728,56 @@ ROUTE.attach = (map) => {
             const profile = ROUTE.elevProfile(state.graph, route.steps);
             let elevBlock = '';
             if (climb && profile && profile.length > 1) {
-                const W = 100;
-                const H = 28;
-                const maxD = profile[profile.length - 1].d || 1;
-                let minZ = Infinity;
-                let maxZ = -Infinity;
-                for (const p of profile) { minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z); }
-                const range = Math.max(maxZ - minZ, 1);
-                const px = (d) => (d / maxD) * W;
-                const py = (z) => H - 2 - ((z - minZ) / range) * (H - 4);
-                const pts = profile.map((p) => `${px(p.d).toFixed(1)},${py(p.z).toFixed(1)}`);
-                const line = `M${pts.join(' L')}`;
                 elevBlock = `
                     <div class="map-route-elev-head">
                         <span>Elevation</span>
                         <span class="map-route-elev-stat">↑${Math.round(climb.gainFt)} ft · ↓${Math.round(climb.lossFt)} ft</span>
                     </div>
-                    <svg class="map-route-elev" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
-                        <path class="map-route-elev-area" d="${line} L${W},${H} L0,${H} Z"/>
-                        <path class="map-route-elev-line" d="${line}"/>
-                    </svg>`;
+                    ${ROUTE.elevSvg(profile)}`;
             }
+
+            // Stash what the Play preview needs: the dense path with cumulative
+            // distances (for marker position), per-step lane + crash flags (for
+            // the live readout), and the bar/profile markup to mirror in the
+            // track bar.
+            const cumDist = [0];
+            for (let i = 1; i < fullPath.length; i++) {
+                cumDist.push(cumDist[i - 1] + ROUTE.distanceM(
+                    fullPath[i - 1][0], fullPath[i - 1][1], fullPath[i][0], fullPath[i][1]));
+            }
+            let segCum = 0;
+            const segs = runs.map((r) => {
+                segCum += r.meters;
+                return { endFrac: segCum / route.distance, catIdx: r.catIdx, hin: r.hin };
+            });
+            // Prefix sums of climb/descent at each profile point, so the live
+            // readout can report cumulative gain/loss up to the play cursor.
+            const playProfile = (climb && profile && profile.length > 1) ? profile : null;
+            const gainPrefix = [0];
+            const lossPrefix = [0];
+            if (playProfile) {
+                let gp = 0;
+                let lp = 0;
+                for (let i = 1; i < playProfile.length; i++) {
+                    const dz = playProfile[i].z - playProfile[i - 1].z;
+                    if (dz > 0) gp += dz; else lp -= dz;
+                    gainPrefix.push(gp);
+                    lossPrefix.push(lp);
+                }
+            }
+            state.playData = {
+                path: fullPath,
+                cumDist,
+                totalM: cumDist[cumDist.length - 1] || 1,
+                segs,
+                miles,
+                barHtml: bar,
+                hinbarHtml: hinbar,
+                profile: playProfile,
+                gainPrefix,
+                lossPrefix,
+            };
+            playBtn.hidden = false;
 
             breakdown.innerHTML = `
                 <button type="button" class="map-route-bar-toggle" title="Show lane mix"
@@ -1026,6 +1099,7 @@ ROUTE.attach = (map) => {
         };
 
         const clearRoute = () => {
+            stopPlay();
             state.routeLayer.clearLayers();
             if (state.start) map.removeLayer(state.start);
             if (state.end) map.removeLayer(state.end);
@@ -1174,6 +1248,203 @@ ROUTE.attach = (map) => {
             helpModal.querySelector('.map-route-help-close').addEventListener('click', close);
         };
 
+        // --- Play preview ---
+        // Hides the planner chrome and flies a marker along the route, with a
+        // scrubber, 1×/2×/3× speed, and a live elevation + lane/crash readout
+        // in a bottom track bar. `p` is the fraction (0..1) of route distance.
+        const PLAY_BASE_MS = 30000;   // 1× full-route traversal time
+        const PLAY_ZOOM = 16;
+        let play = null;              // { p, speed, playing, lastTs, raf }
+        let playMarker = null;
+        let playSaved = null;         // view to restore on exit
+        let playBar = null;           // cached track-bar DOM
+
+        const latAtFrac = (d, p) => {
+            const target = p * d.totalM;
+            let lo = 0;
+            let hi = d.cumDist.length - 1;
+            while (lo < hi) {
+                const mid = (lo + hi) >> 1;
+                if (d.cumDist[mid] < target) lo = mid + 1; else hi = mid;
+            }
+            const i = Math.max(1, lo);
+            const span = d.cumDist[i] - d.cumDist[i - 1] || 1;
+            const t = (target - d.cumDist[i - 1]) / span;
+            const a = d.path[i - 1];
+            const b = d.path[i];
+            return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+        };
+
+        const segAtFrac = (d, p) => {
+            for (const s of d.segs) if (p <= s.endFrac) return s;
+            return d.segs[d.segs.length - 1];
+        };
+
+        // Interpolated elevation (ft) and cumulative gain/loss (ft) at fraction
+        // p, from the profile points and their prefix sums.
+        const sampleElev = (d, p) => {
+            const profile = d.profile;
+            const target = p * profile[profile.length - 1].d;
+            let lo = 0;
+            let hi = profile.length - 1;
+            while (lo < hi) {
+                const mid = (lo + hi) >> 1;
+                if (profile[mid].d < target) lo = mid + 1; else hi = mid;
+            }
+            const i = Math.max(1, lo);
+            const span = profile[i].d - profile[i - 1].d || 1;
+            const t = (target - profile[i - 1].d) / span;
+            const dz = profile[i].z - profile[i - 1].z;
+            return {
+                z: profile[i - 1].z + dz * t,
+                gain: d.gainPrefix[i - 1] + (dz > 0 ? dz * t : 0),
+                loss: d.lossPrefix[i - 1] + (dz < 0 ? -dz * t : 0),
+            };
+        };
+
+        const updateToggle = () => {
+            const btn = playBar.querySelector('.map-play-toggle');
+            btn.textContent = play.playing ? '⏸' : '▶';
+            btn.setAttribute('aria-label', play.playing ? 'Pause' : 'Play');
+        };
+
+        const renderFrame = (p) => {
+            const d = state.playData;
+            if (!d || !play) return;
+            const ll = latAtFrac(d, p);
+            playMarker.setLatLng(ll);
+            map.setView(ll, PLAY_ZOOM, { animate: false });
+
+            const pct = (p * 100).toFixed(2) + '%';
+            for (const c of playBar.querySelectorAll('.map-play-cursor')) c.style.left = pct;
+            playBar.querySelector('.map-play-seek').value = Math.round(p * 1000);
+
+            const seg = segAtFrac(d, p);
+            const cat = ROUTE.CONFIG.laneCategories[seg.catIdx];
+            playBar.querySelector('.map-play-lane').innerHTML =
+                `<span class="map-legend-swatch" style="background:${cat.color}"></span>`
+                + `<span>${cat.label}${seg.hin ? ' · <em>crash corridor</em>' : ''}</span>`;
+            playBar.querySelector('.map-play-dist').textContent =
+                `${(p * d.miles).toFixed(1)} / ${d.miles.toFixed(1)} mi`;
+            const e = d.profile ? sampleElev(d, p) : null;
+            playBar.querySelector('.map-play-elev-now').textContent =
+                e ? `${Math.round(e.z)} ft` : '';
+            playBar.querySelector('.map-play-climb').textContent =
+                e ? `↑${Math.round(e.gain)} ↓${Math.round(e.loss)} ft` : '';
+        };
+
+        const frame = (ts) => {
+            if (!play || !play.playing) return;
+            if (play.lastTs != null) {
+                play.p += (ts - play.lastTs) / (PLAY_BASE_MS / play.speed);
+                if (play.p >= 1) { play.p = 1; play.playing = false; }
+            }
+            play.lastTs = ts;
+            renderFrame(play.p);
+            updateToggle();
+            if (play.playing) play.raf = requestAnimationFrame(frame);
+        };
+        // lastTs reset so the gap while paused/scrubbing isn't counted as travel.
+        const resume = () => { play.lastTs = null; play.raf = requestAnimationFrame(frame); };
+
+        const togglePlay = () => {
+            if (play.p >= 1) play.p = 0;
+            play.playing = !play.playing;
+            updateToggle();
+            if (play.playing) resume();
+        };
+
+        const buildPlayBar = () => {
+            const el = L.DomUtil.create('div', 'panel map-play', map.getContainer());
+            el.innerHTML = `
+                <div class="map-play-elevwrap"><div class="map-play-elev"></div><div class="map-play-cursor"></div></div>
+                <div class="map-play-barwrap"><div class="map-play-lanes"></div><div class="map-play-cursor"></div></div>
+                <div class="map-play-readout">
+                    <span class="map-play-lane"></span>
+                    <span class="map-play-meta">
+                        <span class="map-play-climb"></span>
+                        <span class="map-play-elev-now"></span>
+                        <span class="map-play-dist"></span>
+                    </span>
+                </div>
+                <div class="map-play-controls">
+                    <button type="button" class="map-play-toggle" aria-label="Pause">⏸</button>
+                    <input type="range" class="map-play-seek" min="0" max="1000" value="0" aria-label="Route progress">
+                    <div class="map-play-speeds">
+                        <button type="button" data-s="1" class="is-active">1×</button>
+                        <button type="button" data-s="2">2×</button>
+                        <button type="button" data-s="3">3×</button>
+                    </div>
+                    <button type="button" class="map-play-exit" aria-label="Exit preview">✕</button>
+                </div>
+            `;
+            L.DomEvent.disableClickPropagation(el);
+            L.DomEvent.disableScrollPropagation(el);
+
+            el.querySelector('.map-play-toggle').addEventListener('click', togglePlay);
+            el.querySelector('.map-play-exit').addEventListener('click', stopPlay);
+            const seek = el.querySelector('.map-play-seek');
+            seek.addEventListener('input', () => {
+                if (!play) return;
+                play.p = seek.value / 1000;
+                play.playing = false;   // scrubbing pauses
+                updateToggle();
+                renderFrame(play.p);
+            });
+            for (const b of el.querySelectorAll('.map-play-speeds button')) {
+                b.addEventListener('click', () => {
+                    if (!play) return;
+                    play.speed = Number(b.dataset.s);
+                    for (const o of el.querySelectorAll('.map-play-speeds button')) {
+                        o.classList.toggle('is-active', o === b);
+                    }
+                });
+            }
+            return el;
+        };
+
+        const startPlay = () => {
+            const d = state.playData;
+            if (!d || play) return;
+            if (!playBar) playBar = buildPlayBar();
+            playSaved = { center: map.getCenter(), zoom: map.getZoom() };
+            map.getContainer().classList.add('is-playing');
+            playBar.hidden = false;
+
+            playBar.querySelector('.map-play-elevwrap').classList.toggle('is-empty', !d.profile);
+            playBar.querySelector('.map-play-elev').innerHTML =
+                d.profile ? ROUTE.elevSvg(d.profile, 100, 40) : '';
+            playBar.querySelector('.map-play-lanes').innerHTML =
+                `<span class="map-route-bar">${d.barHtml}</span>`
+                + (d.hinbarHtml ? `<span class="map-route-hinbar">${d.hinbarHtml}</span>` : '');
+            for (const b of playBar.querySelectorAll('.map-play-speeds button')) {
+                b.classList.toggle('is-active', b.dataset.s === '1');
+            }
+
+            playMarker = L.marker(latAtFrac(d, 0), {
+                icon: L.divIcon({ className: 'map-play-dot', html: '<span></span>', iconSize: [18, 18], iconAnchor: [9, 9] }),
+                zIndexOffset: 1000,
+                interactive: false,
+            }).addTo(map);
+
+            play = { p: 0, speed: 1, playing: true, lastTs: null, raf: null };
+            updateToggle();
+            renderFrame(0);
+            resume();
+            ROUTE.log('Play preview started', { miles: d.miles });
+        };
+
+        function stopPlay() {
+            if (!play) return;
+            if (play.raf) cancelAnimationFrame(play.raf);
+            play = null;
+            if (playMarker) { map.removeLayer(playMarker); playMarker = null; }
+            map.getContainer().classList.remove('is-playing');
+            if (playBar) playBar.hidden = true;
+            if (playSaved) { map.setView(playSaved.center, playSaved.zoom); playSaved = null; }
+            ROUTE.log('Play preview stopped');
+        }
+
         const setActive = (active) => {
             state.active = active;
             div.classList.toggle('is-collapsed', !active);
@@ -1280,6 +1551,7 @@ ROUTE.attach = (map) => {
             }
         });
         helpBtn.addEventListener('click', toggleHelp);
+        playBtn.addEventListener('click', startPlay);
         exportBtn.addEventListener('click', exportGpx);
         reverseBtn.addEventListener('click', reverseRoute);
         clearBtn.addEventListener('click', clearRoute);
